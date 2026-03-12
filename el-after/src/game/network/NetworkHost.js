@@ -1,6 +1,6 @@
 import EventBus, { EVENTS, MessagePriority } from '../events/EventBus';
 
-const SIGNALING_URL = 'ws://localhost:3001';
+const SIGNALING_URL = import.meta.env.VITE_SIGNALING_URL || 'ws://localhost:3001';
 
 /**
  * NetworkHost
@@ -80,6 +80,7 @@ export default class NetworkHost {
 
     connect() {
         return new Promise((resolve, reject) => {
+            console.log('[NetworkHost] Connecting to SignalingServer at', SIGNALING_URL);
             this.ws = new WebSocket(SIGNALING_URL);
 
             this.ws.onopen = () => {
