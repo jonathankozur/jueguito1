@@ -9,25 +9,31 @@ export default class PlayerEntity {
         this.velX = 0;
         this.velY = 0;
         this.angle = 0;
-
-        this.velY = 0;
-        this.angle = 0;
         this.timeSinceLastAttack = 0;
 
-        // Atributos de Vida y Daño Base ("El Pibe")
+        // Atributos de Vida y Daño Base
         this.stats = new StatsComponent({
             maxHp: 100,
             baseSpeed: 200,
             damage: 10,
-            attackRate: 500 // Dispara cada medio segundo
+            attackRate: 500
         });
 
-        // Se suscribe a los inputs del hardware ciego
+        // [MULTIPLAYER] Each PlayerEntity subscribes to INPUT events
+        // but only processes them if msg.targetId matches its own id.
+        // This allows multiple PlayerEntities to coexist in the same EventBus.
+        // For 'player_1' (the local host player), targetId will be undefined or 'player_1'
+        // so we also accept messages without a targetId (backwards compatibility with InputController).
         EventBus.subscribe(EVENTS.INPUT_MOVE, this.handleInputMove, this);
         EventBus.subscribe(EVENTS.INPUT_AIM, this.handleInputAim, this);
     }
 
     handleInputMove(msg) {
+        // Filter: only process if this message is meant for this player
+        // (or if it's a legacy broadcast with no targetId)
+        const isForMe = !msg.targetId || msg.targetId === this.id;
+        if (!isForMe) return;
+
         const dirX = msg.float1;
         const dirY = msg.float2;
         const prevVelX = this.velX;
@@ -37,7 +43,6 @@ export default class PlayerEntity {
             this.velX = 0;
             this.velY = 0;
         } else {
-            // Normalización matemática pura
             const length = Math.sqrt(dirX * dirX + dirY * dirY);
             const currentSpeed = this.stats.getSpeed();
             this.velX = (dirX / length) * currentSpeed;
@@ -50,10 +55,13 @@ export default class PlayerEntity {
     }
 
     handleInputAim(msg) {
+        // Filter by targetId
+        const isForMe = !msg.targetId || msg.targetId === this.id;
+        if (!isForMe) return;
+
         const targetX = msg.float1;
         const targetY = msg.float2;
         const prevAngle = this.angle;
-        // Cálculo puramente matemático del ángulo (sin motor)
         this.angle = Math.atan2(targetY - this.y, targetX - this.x);
 
         if (this.angle !== prevAngle) {
@@ -66,8 +74,6 @@ export default class PlayerEntity {
         const prevX = this.x;
         const prevY = this.y;
 
-        // Fórmula MRU: distancia = velocidad * tiempo (en segundos, por lo que deltaMs / 1000)
-        // No usamos el motor de físicas de Phaser acá, solo mate
         this.x += this.velX * (deltaMs / 1000);
         this.y += this.velY * (deltaMs / 1000);
 
@@ -80,17 +86,15 @@ export default class PlayerEntity {
         if (this.timeSinceLastAttack >= this.stats.attackRate) {
             this.timeSinceLastAttack = 0;
             
-            // Enqueue attack indicating origin, damage, and target direction
             EventBus.enqueueCommand(EVENTS.ATTACK_PERFORMED, MessagePriority.HIGH, {
-                senderId: this.id, // Who is attacking
-                float1: this.x,    // Origin X
-                float2: this.y,    // Origin Y
-                float3: this.angle,// Aiming direction
-                float4: this.stats.damage // Weapon damage
+                senderId: this.id,
+                float1: this.x,
+                float2: this.y,
+                float3: this.angle,
+                float4: this.stats.damage
             });
         }
 
-        // Evitamos saturar el Bus si el personaje está inactivo
         if (this._dirty || this.velX !== 0 || this.velY !== 0) {
             EventBus.enqueueEvent(EVENTS.PLAYER_STATE_UPDATED, MessagePriority.NORMAL, {
                 string1: 'moved',
@@ -111,14 +115,12 @@ export default class PlayerEntity {
     }
 
     /**
-     * Called by CombatSystem when this entity is hit. 
-     * Owns the responsibility of updating stats and broadcasting the state change.
+     * Called by CombatSystem when this entity is hit.
      * @returns {boolean} true if the player died from this hit
      */
     receiveDamage(amount) {
         this.stats.takeDamage(amount);
         
-        // Notify the View layer (React HP Bar) of the new HP value
         EventBus.enqueueEvent(EVENTS.PLAYER_HP_CHANGED, MessagePriority.HIGH, {
             senderId: this.id,
             float1: this.stats.currentHp,

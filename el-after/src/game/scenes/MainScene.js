@@ -2,86 +2,128 @@ import Phaser from 'phaser';
 import EventBus, { EVENTS, MessagePriority } from '../events/EventBus';
 import InputController from '../controllers/InputController';
 
+// [MULTIPLAYER] Colors per player slot for visual distinction
+const PLAYER_COLORS = [
+    0x00e5ff, // player_1: Cyan (host)
+    0x39ff14, // player_2: Neon Green
+    0xff6ec7, // player_3: Neon Pink
+    0xffae00  // player_4: Amber
+];
+
 export default class MainScene extends Phaser.Scene {
     constructor() {
         super('MainScene');
-        // Diccionario para vincular IDs Lógicas con Sprites visuales
         this.uiSprites = {};
         this.inputController = null;
+
+        // [MULTIPLAYER] Set by GameComponent after Phaser game is ready:
+        this.localPlayerId = null;  // e.g. 'player_1'
+        this.inputMode = 'local';   // 'local' for host/solo, 'remote' for clients
+        this.networkClient = null;  // NetworkClient instance (only for clients)
     }
 
     preload() {
-        // Player placeholder (Cyan)
-        const gPlayer = this.add.graphics();
-        gPlayer.fillStyle(0x00e5ff, 1);
-        gPlayer.fillRect(-16, -16, 32, 32); // Centered
-        gPlayer.generateTexture('player_placeholder', 32, 32);
-        gPlayer.destroy();
-
+        // We generate player textures dynamically per-color in onEntityCreated
         // Enemy Fodder placeholder (Red)
         const gEnemy = this.add.graphics();
-        gEnemy.fillStyle(0xff003c, 1); // Neon Red/Pink
-        gEnemy.fillRect(-12, -12, 24, 24); // Centered, slightly smaller
+        gEnemy.fillStyle(0xff003c, 1);
+        gEnemy.fillRect(-12, -12, 24, 24);
         gEnemy.generateTexture('enemy_fodder', 24, 24);
         gEnemy.destroy();
     }
 
     create() {
-        // Cero lógicas de borde físico en Phaser. Lo calcula GameSimulation.
         this.cameras.main.setBackgroundColor('#1a1a24');
         this.add.rectangle(800, 800, 1600, 1600).setStrokeStyle(4, 0xff007f);
         this.input.setDefaultCursor('crosshair');
 
-        // 1. Suscribir la Escena (Renderer UI) al mundo
+        // [FIX] Read session data from Phaser's global registry.
+        // GameComponent sets these BEFORE Phaser creates the scene,
+        // ensuring they're available at create() time.
+        this.localPlayerId = this.game.registry.get('localPlayerId') ?? 'player_1';
+        this.inputMode = this.game.registry.get('inputMode') ?? 'local';
+        this.networkClient = this.game.registry.get('networkClient') ?? null;
+
         EventBus.subscribe(EVENTS.ENTITY_CREATED, this.onEntityCreated, this);
         EventBus.subscribe(EVENTS.ENTITY_DESTROYED, this.onEntityDestroyed, this);
         EventBus.subscribe(EVENTS.PLAYER_STATE_UPDATED, this.onEntityStateUpdated, this);
-        
-        // Listeners visuales secundarios (FX de Ataque, Barras de HP)
         EventBus.subscribe(EVENTS.ENTITY_HP_CHANGED, this.onEntityHpChanged, this);
         EventBus.subscribe(EVENTS.ATTACK_PERFORMED, this.onAttackPerformed, this);
 
-        // 2. Configurar Controller de Hardware
-        this.inputController = new InputController(this);
+        // [MULTIPLAYER] Configure InputController based on mode.
+        // 'local'  → host/solo: inject inputs into EventBus directly
+        // 'remote' → client: send inputs to host via NetworkClient WebSocket
+        this.inputController = new InputController(
+            this,
+            this.localPlayerId,
+            this.inputMode,
+            this.networkClient
+        );
 
-        // 3. Avisar al Engine Lógico que la UI (Phaser) ya está leyendo eventos
         EventBus.enqueueCommand(EVENTS.UI_READY, MessagePriority.CRITICAL);
     }
 
+
     update() {
-        // 3. Delegate input checking to the InputController
         if (this.inputController) {
             this.inputController.update();
         }
+
+        // [MULTIPLAYER] Dynamic group camera: center on all players
+        this._updateGroupCamera();
     }
 
     // --- MÉTODOS EXCLUSIVOS DE RENDERIZACIÓN ---
 
     onEntityCreated(msg) {
         if (msg.string1 === 'Player') {
-            const sprite = this.add.sprite(0, 0, 'player_placeholder');
-            
-            // Container para agrupar Sprite + UI Elements de la Entidad
+            // [MULTIPLAYER] Determine slot index from playerId (player_1 -> 0, player_2 -> 1...)
+            const slotIndex = this._getPlayerSlot(msg.senderId);
+            const color = PLAYER_COLORS[slotIndex] ?? 0xffffff;
+
+            // Generate a unique texture per player color
+            const texKey = `player_${slotIndex}`;
+            if (!this.textures.exists(texKey)) {
+                const g = this.add.graphics();
+                g.fillStyle(color, 1);
+                g.fillRect(-16, -16, 32, 32);
+                g.generateTexture(texKey, 32, 32);
+                g.destroy();
+            }
+
+            const sprite = this.add.sprite(0, 0, texKey);
             const container = this.add.container(msg.float1, msg.float2, [sprite]);
 
+            // [MULTIPLAYER] Add name tag above player for clarity
+            const nameTag = this.add.text(0, -28, msg.senderId, {
+                fontSize: '10px',
+                color: `#${color.toString(16).padStart(6, '0')}`,
+                fontFamily: 'monospace'
+            }).setOrigin(0.5);
+            container.add(nameTag);
+
             this.uiSprites[msg.senderId] = {
-                container: container,
-                sprite: sprite,
-                type: 'Player'
+                container,
+                sprite,
+                type: 'Player',
+                slotIndex
             };
 
-            this.cameras.main.startFollow(container, true, 0.1, 0.1);
-            this.cameras.main.setZoom(1.5);
-            
+            // Camera follows local player individually on first join
+            // Group camera logic is in _updateGroupCamera()
+            if (msg.senderId === this.localPlayerId || 
+                (!this.localPlayerId && slotIndex === 0)) {
+                this.cameras.main.startFollow(container, true, 0.1, 0.1);
+                this.cameras.main.setZoom(1.5);
+            }
+
         } else if (msg.string1 === 'Enemy') {
             const sprite = this.add.sprite(0, 0, 'enemy_fodder');
             
-            // Health Bar Background (Black)
             const hpBg = this.add.graphics();
             hpBg.fillStyle(0x000000, 1);
             hpBg.fillRect(-15, -20, 30, 4);
             
-            // Health Bar Fill (Green)
             const hpFill = this.add.graphics();
             hpFill.fillStyle(0x00ff00, 1);
             hpFill.fillRect(-15, -20, 30, 4);
@@ -89,11 +131,11 @@ export default class MainScene extends Phaser.Scene {
             const container = this.add.container(msg.float1, msg.float2, [sprite, hpBg, hpFill]);
 
             this.uiSprites[msg.senderId] = {
-                container: container,
-                sprite: sprite,
-                hpFill: hpFill,
+                container,
+                sprite,
+                hpFill,
                 type: 'Enemy',
-                maxHp: msg.object1.stats.maxHp // We passed the enemy object in object1
+                maxHp: msg.object1.stats.maxHp
             };
         }
     }
@@ -107,7 +149,6 @@ export default class MainScene extends Phaser.Scene {
     }
 
     onEntityStateUpdated(msg) {
-        // Recibe el mensaje "Adiviná, el ID player1 cambió de estado"
         const entityData = this.uiSprites[msg.senderId];
         if (entityData) {
             if (msg.string1 === 'moved') {
@@ -118,13 +159,10 @@ export default class MainScene extends Phaser.Scene {
     }
 
     onEntityHpChanged(msg) {
-        // msg.senderId is the enemy ID, msg.float1 is currentHp, msg.float2 is maxHp
-        // This is sent by EnemyEntity.receiveDamage() — the entity owns its own state.
         const entityData = this.uiSprites[msg.senderId];
         if (entityData && entityData.hpFill) {
             const ratio = Math.max(0, msg.float1 / msg.float2);
             entityData.hpFill.clear();
-            // Color changes from green to red as HP drops
             const color = ratio > 0.5 ? 0x00ff00 : ratio > 0.25 ? 0xffaa00 : 0xff0000;
             entityData.hpFill.fillStyle(color, 1);
             entityData.hpFill.fillRect(-15, -20, 30 * ratio, 4);
@@ -134,61 +172,44 @@ export default class MainScene extends Phaser.Scene {
     onAttackPerformed(msg) {
         const originX = msg.float1;
         const originY = msg.float2;
-        const angle = msg.float3; // Middle angle
+        const angle = msg.float3;
 
-        if (msg.senderId === 'player1') {
-            // These exact values must match CombatSystem.js (Player)
-            const length = 100; 
-            const spread = Math.PI / 4; // 45 degrees left and right (90 total)
+        // [MULTIPLAYER] Any player attack (not just player1) gets the amber cone
+        const isPlayerAttack = msg.senderId.startsWith('player_');
 
-            // Draw a conical "slash" using Graphics
+        if (isPlayerAttack) {
+            const length = 100;
+            const spread = Math.PI / 4;
+
             const graphics = this.add.graphics();
-            graphics.fillStyle(0xffaa00, 0.4); // Amber, semi-transparent
+            graphics.fillStyle(0xffaa00, 0.4);
             
-            // Draw slice: moveTo origin, arc, then closePath
             graphics.beginPath();
             graphics.moveTo(originX, originY);
-            graphics.arc(
-                originX, 
-                originY, 
-                length, 
-                angle - spread, 
-                angle + spread, 
-                false
-            );
+            graphics.arc(originX, originY, length, angle - spread, angle + spread, false);
             graphics.closePath();
             graphics.fillPath();
 
-            // Animate fade out and scale slightly for impact feel
             this.tweens.add({
                 targets: graphics,
                 alpha: 0,
                 scaleX: 1.1,
                 scaleY: 1.1,
-                x: originX * -0.1, // Offset compensation for scale
+                x: originX * -0.1,
                 y: originY * -0.1,
                 duration: 150,
                 onComplete: () => graphics.destroy()
             });
         } else {
-            // ENEMY ATTACK VISUALIZATION (Fodders)
-            // They have a smaller, melee range (30) and we paint them red
-            const length = 30; 
+            const length = 30;
             const spread = Math.PI / 4;
 
             const graphics = this.add.graphics();
-            graphics.fillStyle(0xff0000, 0.4); // Pure Red, semi-transparent
+            graphics.fillStyle(0xff0000, 0.4);
             
             graphics.beginPath();
             graphics.moveTo(originX, originY);
-            graphics.arc(
-                originX, 
-                originY, 
-                length, 
-                angle - spread, 
-                angle + spread, 
-                false
-            );
+            graphics.arc(originX, originY, length, angle - spread, angle + spread, false);
             graphics.closePath();
             graphics.fillPath();
 
@@ -199,6 +220,46 @@ export default class MainScene extends Phaser.Scene {
                 onComplete: () => graphics.destroy()
             });
         }
+    }
+
+    /**
+     * [MULTIPLAYER] Keeps the camera centered on the centroid of all active players,
+     * with dynamic zoom based on spread distance.
+     */
+    _updateGroupCamera() {
+        const playerEntries = Object.entries(this.uiSprites)
+            .filter(([, data]) => data.type === 'Player');
+
+        if (playerEntries.length === 0) return;
+        // If only 1 player, the startFollow() handles tracking — no need to override
+        if (playerEntries.length === 1) return;
+
+        // Stop the single-player follow target (we take manual control)
+        this.cameras.main.stopFollow();
+
+        let sumX = 0, sumY = 0;
+        for (const [, data] of playerEntries) {
+            sumX += data.container.x;
+            sumY += data.container.y;
+        }
+
+        const centroidX = sumX / playerEntries.length;
+        const centroidY = sumY / playerEntries.length;
+
+        // Smooth pan towards centroid
+        const cam = this.cameras.main;
+        const lerpFactor = 0.08;
+        const scrollX = centroidX - cam.width / (2 * cam.zoom);
+        const scrollY = centroidY - cam.height / (2 * cam.zoom);
+
+        cam.scrollX += (scrollX - cam.scrollX) * lerpFactor;
+        cam.scrollY += (scrollY - cam.scrollY) * lerpFactor;
+    }
+
+    _getPlayerSlot(playerId) {
+        const parts = playerId.split('_');
+        const num = parseInt(parts[parts.length - 1], 10);
+        return isNaN(num) ? 0 : num - 1;
     }
 
     shutdown() {

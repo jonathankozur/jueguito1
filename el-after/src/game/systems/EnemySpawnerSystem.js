@@ -10,10 +10,17 @@ export default class EnemySpawnerSystem {
         this.maxEnemies = 100; // Hardcap for now
         
         // Spawn radius from the player
-        this.spawnDistance = 600; 
+        this.spawnDistance = 600;
+
+        // [MULTIPLAYER] Disabled while implementing network layer.
+        // Set to true to re-enable enemy waves.
+        this.enabled = false;
     }
 
     update(deltaMs, playerCoords) {
+        // Disabled for multiplayer branch
+        if (!this.enabled) return;
+
         // We only start spawning when the player exists
         if (!playerCoords) return;
 

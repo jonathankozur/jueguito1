@@ -1,13 +1,29 @@
 import EventBus, { EVENTS, MessagePriority } from '../events/EventBus';
 
+/**
+ * InputController
+ *
+ * Lee el hardware (teclado + mouse) desde Phaser y emite INPUT_MOVE / INPUT_AIM.
+ *
+ * [MULTIPLAYER] Modes:
+ *  - mode 'local': Emite al EventBus local (host/solo — la simulación está en este mismo browser)
+ *  - mode 'remote': Envía al NetworkClient para que lo reenvíe al host por WebSocket
+ *
+ * @param {Phaser.Scene} scene
+ * @param {string} playerId - The local player's ID (e.g. 'player_1')
+ * @param {'local'|'remote'} inputMode
+ * @param {NetworkClient|null} networkClient - Required when inputMode === 'remote'
+ */
 export default class InputController {
-    constructor(scene) {
-        this.scene = scene; // Reference to the Phaser Scene to read hardware state
+    constructor(scene, playerId = 'player_1', inputMode = 'local', networkClient = null) {
+        this.scene = scene;
+        this.playerId = playerId;
+        this.inputMode = inputMode;
+        this.networkClient = networkClient;
 
-        // Cache state to prevent spamming the MessageBus
         this.lastInputMove = { x: null, y: null };
         this.lastInputAim = { x: null, y: null };
-        
+
         this.cursors = this.scene.input.keyboard.addKeys({
             up: Phaser.Input.Keyboard.KeyCodes.W,
             down: Phaser.Input.Keyboard.KeyCodes.S,
@@ -16,7 +32,6 @@ export default class InputController {
         });
     }
 
-    // Called every frame by the Phaser Scene's update loop
     update() {
         let dirX = 0;
         let dirY = 0;
@@ -28,27 +43,52 @@ export default class InputController {
         else if (this.cursors.down.isDown) dirY = 1;
 
         if (this.lastInputMove.x !== dirX || this.lastInputMove.y !== dirY) {
-            EventBus.enqueueCommand(EVENTS.INPUT_MOVE, MessagePriority.NORMAL, { float1: dirX, float2: dirY });
             this.lastInputMove.x = dirX;
             this.lastInputMove.y = dirY;
+            this._sendMoveInput(dirX, dirY);
         }
 
         const pointer = this.scene.input.activePointer;
         if (pointer) {
-            // Optimization: round coordinates to prevent micro-movements from filling the bus
-            const aimX = Math.round(pointer.worldX); 
+            const aimX = Math.round(pointer.worldX);
             const aimY = Math.round(pointer.worldY);
-            
+
             if (this.lastInputAim.x !== aimX || this.lastInputAim.y !== aimY) {
-                EventBus.enqueueCommand(EVENTS.INPUT_AIM, MessagePriority.NORMAL, { float1: aimX, float2: aimY });
                 this.lastInputAim.x = aimX;
                 this.lastInputAim.y = aimY;
+                this._sendAimInput(aimX, aimY);
             }
         }
     }
 
+    _sendMoveInput(dirX, dirY) {
+        if (this.inputMode === 'remote' && this.networkClient) {
+            // Client: send to host via WebSocket
+            this.networkClient.sendMoveInput(dirX, dirY);
+        } else {
+            // Host/Solo: inject directly into local EventBus with targetId
+            EventBus.enqueueCommand(EVENTS.INPUT_MOVE, MessagePriority.NORMAL, {
+                targetId: this.playerId,
+                float1: dirX,
+                float2: dirY
+            });
+        }
+    }
+
+    _sendAimInput(aimX, aimY) {
+        if (this.inputMode === 'remote' && this.networkClient) {
+            this.networkClient.sendAimInput(aimX, aimY);
+        } else {
+            EventBus.enqueueCommand(EVENTS.INPUT_AIM, MessagePriority.NORMAL, {
+                targetId: this.playerId,
+                float1: aimX,
+                float2: aimY
+            });
+        }
+    }
+
     destroy() {
-        // Cleanup if needed when the controller is destroyed
         this.scene = null;
+        this.networkClient = null;
     }
 }

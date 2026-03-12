@@ -11,7 +11,6 @@ export default class GameSimulation {
         this.enemySpawner = new EnemySpawnerSystem(this);
         this.combatSystem = new CombatSystem(this);
 
-        // Escuchar cuando el Creador u otros sistemas instancian cosas
         EventBus.subscribe(EVENTS.ENTITY_CREATED, this.onEntityCreated, this);
     }
 
@@ -21,33 +20,32 @@ export default class GameSimulation {
 
     // Motor central de avance en el tiempo (Tick)
     update(delta) {
-        // Find player position for AI tracking
-        let playerCoords = null;
+        // [MULTIPLAYER] Find ALL player positions (not just 'player1')
+        const playerPositions = [];
         for (const [id, entity] of this.entities.entries()) {
-            if (id === 'player1') { // Hardcoded for now based on LevelBuilder
-                playerCoords = { x: entity.x, y: entity.y };
-                break;
+            if (id.startsWith('player_')) {
+                playerPositions.push({ x: entity.x, y: entity.y });
             }
         }
 
-        // Run spawner
-        this.enemySpawner.update(delta, playerCoords);
+        // For enemy AI: target the nearest player
+        // (With enemies disabled this is moot, but future-proofed)
+        const primaryPlayer = playerPositions[0] ?? null;
 
-        // 1. Actualizar Lógicas y Velocidades (Movimientos matemáticos)
+        // Run spawner (disabled in multiplayer branch)
+        this.enemySpawner.update(delta, primaryPlayer);
+
+        // Actualizar lógicas de todas las entidades
         this.entities.forEach(entity => {
             if (typeof entity.update === 'function') {
-                // Pass player coordinates to entities that need it (like Enemy)
-                entity.update(delta, playerCoords);
+                entity.update(delta, primaryPlayer);
             }
         });
 
-        // 2. Comprobar Colisiones del Mundo e Inter-entidad (Aquí calcularemos las cajas / grid futuro)
         this.checkCollisions();
     }
 
     checkCollisions() {
-        // En las siguientes iteraciones montaremos la lógica cruda de AABB
-        // Evita que los personajes crucen el borde del mundo (0 a 1600 de X e Y)
         this.entities.forEach(entity => {
             if (entity.x !== undefined && entity.y !== undefined) {
                 if (entity.x < 0) entity.x = 0;
@@ -56,6 +54,18 @@ export default class GameSimulation {
                 if (entity.y > 1600) entity.y = 1600;
             }
         });
+    }
+
+    /**
+     * [MULTIPLAYER] Removes a player entity when they disconnect.
+     */
+    removePlayer(playerId) {
+        const entity = this.entities.get(playerId);
+        if (entity) {
+            if (typeof entity.destroy === 'function') entity.destroy();
+            this.entities.delete(playerId);
+            console.log(`[GameSimulation] Removed player ${playerId}`);
+        }
     }
 
     destroy() {
@@ -68,5 +78,10 @@ export default class GameSimulation {
             this.combatSystem.destroy();
             this.combatSystem = null;
         }
+        // Destroy all entities
+        this.entities.forEach(entity => {
+            if (typeof entity.destroy === 'function') entity.destroy();
+        });
+        this.entities.clear();
     }
 }

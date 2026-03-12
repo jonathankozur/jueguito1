@@ -27,7 +27,13 @@ export const MessageType = {
     PLAYER_DIED: 9,
     GAME_OVER: 10,
     PLAYER_HP_CHANGED: 11,
-    ENTITY_HP_CHANGED: 12
+    ENTITY_HP_CHANGED: 12,
+    // --- [MULTIPLAYER] Network Events ---
+    REMOTE_PLAYER_JOINED: 13, // A remote player connected to the room
+    REMOTE_PLAYER_LEFT: 14,   // A remote player disconnected
+    PLAYERS_SYNCED: 15,       // Client received the full player list from host
+    GAME_START: 16,           // Host signals all clients to start the game
+    PLAYER_WON: 17            // Last player alive wins the match
 };
 
 /**

@@ -12,23 +12,24 @@ export default class CombatSystem {
         const attackerId = msg.senderId;
         const originX = msg.float1;
         const originY = msg.float2;
-        const angle = msg.float3; // The direction of the attack
+        const angle = msg.float3;
         const damage = msg.float4;
 
-        // Is this a player or an enemy attacking?
-        const isPlayerAttacking = attackerId === 'player1';
+        // [MULTIPLAYER] Detect dynamically whether attacker is a player or enemy
+        const isPlayerAttacking = attackerId.startsWith('player_');
         
         // Attack shapes
         const attackRange = isPlayerAttacking ? 100 : 40; 
-        const attackAngleSpread = Math.PI / 4; // 45 degrees spread (cone)
+        const attackAngleSpread = Math.PI / 4;
         
         // Loop through all entities to see who is within Range
         for (const [targetId, entity] of this.simulation.entities.entries()) {
             if (targetId === attackerId) continue; // Don't hit yourself
 
-            // Players can only hit Enemies. Enemies can only hit Players. Ignore friendly fire.
-            if (isPlayerAttacking && targetId === 'player1') continue; 
-            if (!isPlayerAttacking && targetId !== 'player1') continue;
+            // [MULTIPLAYER] PvP enabled: players CAN hit other players.
+            // Enemies still can't hit other enemies.
+            const targetIsPlayer = targetId.startsWith('player_');
+            if (!isPlayerAttacking && !targetIsPlayer) continue; // enemy vs enemy: skip
             
             // Only hit entities with Stats (can take damage)
             if (!entity.stats || entity.stats.isDead) continue;
@@ -58,11 +59,9 @@ export default class CombatSystem {
                     // AND emitting the appropriate state change event (HP_CHANGED, PLAYER_DIED, etc.)
                     const isDead = entity.receiveDamage(damage);
 
-                    // Check death
                     if (isDead) {
-                        if (targetId === 'player1') {
+                        if (targetIsPlayer) {
                             // Player emits PLAYER_DIED from within receiveDamage()
-                            // so nothing to do here
                         } else {
                             this.killEntity(targetId, entity);
                         }

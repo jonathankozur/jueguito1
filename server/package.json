@@ -1,0 +1,14 @@
+{
+  "name": "el-after-server",
+  "version": "1.0.0",
+  "description": "SignalingServer for el-after multiplayer",
+  "main": "SignalingServer.js",
+  "type": "module",
+  "scripts": {
+    "start": "node SignalingServer.js",
+    "dev": "node --watch SignalingServer.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
