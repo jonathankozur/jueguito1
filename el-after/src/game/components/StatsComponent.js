@@ -10,9 +10,12 @@ export default class StatsComponent {
         this.baseSpeed = config.baseSpeed || 100;
         this.damage = config.damage || 10;
         
-        // Attack rate in milliseconds
         this.attackRate = config.attackRate || 1000; 
         
+        // Atributos de Empuje (Knockback)
+        this.strength = config.strength || 10; // Fuerza del atacante
+        this.endurance = config.endurance || 10; // Aguante del defensor (resistencia al empuje)
+
         // Internal state
         this.isDead = this.currentHp <= 0;
     }

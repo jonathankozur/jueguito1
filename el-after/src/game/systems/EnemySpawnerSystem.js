@@ -7,7 +7,12 @@ export default class EnemySpawnerSystem {
         this.baseSpawnDelay = 3000; // Spawn 1 enemy every 3 seconds
         this.timeSinceLastSpawn = 0;
         this.enemyIdCounter = 1;
-        this.maxEnemies = 100; // Hardcap for now
+        this.maxEnemies = 20;
+        this.maxAliveEnemies = 6;
+        this.currentWave = 0;
+        this.waveDurationMs = 30000;
+        this.waveElapsedMs = 0;
+        this.currentSpawnDelay = this.baseSpawnDelay;
         
         // Spawn radius from the player
         this.spawnDistance = 600;
@@ -17,6 +22,28 @@ export default class EnemySpawnerSystem {
         this.enabled = false;
     }
 
+    startSoloRun() {
+        this.enabled = true;
+        this.currentWave = 1;
+        this.waveElapsedMs = 0;
+        this.timeSinceLastSpawn = this.baseSpawnDelay;
+        this.currentSpawnDelay = this.baseSpawnDelay;
+        this.maxAliveEnemies = 6;
+
+        EventBus.enqueueEvent(EVENTS.WAVE_CHANGED, MessagePriority.HIGH, {
+            int1: this.currentWave
+        });
+    }
+
+    stopRun() {
+        this.enabled = false;
+        this.currentWave = 0;
+        this.waveElapsedMs = 0;
+        this.timeSinceLastSpawn = 0;
+        this.currentSpawnDelay = this.baseSpawnDelay;
+        this.maxAliveEnemies = 6;
+    }
+
     update(deltaMs, playerCoords) {
         // Disabled for multiplayer branch
         if (!this.enabled) return;
@@ -24,13 +51,24 @@ export default class EnemySpawnerSystem {
         // We only start spawning when the player exists
         if (!playerCoords) return;
 
-        // Don't spawn if we hit the limit
-        // (subtract 1 for the player if entities map contains both)
-        if (this.simulation.entities.size >= this.maxEnemies) return;
+        this.waveElapsedMs += deltaMs;
+        if (this.waveElapsedMs >= this.waveDurationMs) {
+            this.waveElapsedMs -= this.waveDurationMs;
+            this.currentWave += 1;
+            this.currentSpawnDelay = Math.max(900, this.baseSpawnDelay - ((this.currentWave - 1) * 250));
+            this.maxAliveEnemies = Math.min(this.maxEnemies, 6 + ((this.currentWave - 1) * 2));
+
+            EventBus.enqueueEvent(EVENTS.WAVE_CHANGED, MessagePriority.HIGH, {
+                int1: this.currentWave
+            });
+        }
+
+        const aliveEnemies = this._countAliveEnemies();
+        if (aliveEnemies >= this.maxAliveEnemies) return;
 
         this.timeSinceLastSpawn += deltaMs;
 
-        if (this.timeSinceLastSpawn >= this.baseSpawnDelay) {
+        if (this.timeSinceLastSpawn >= this.currentSpawnDelay) {
             this.timeSinceLastSpawn = 0;
             this.spawnEnemy(playerCoords);
         }
@@ -38,13 +76,10 @@ export default class EnemySpawnerSystem {
 
     spawnEnemy(playerCoords) {
         const id = `enemy_${this.enemyIdCounter++}`;
-        
-        // Random angle for cirular spawn around the player
-        const randomAngle = Math.random() * Math.PI * 2;
-        const spawnX = playerCoords.x + Math.cos(randomAngle) * this.spawnDistance;
-        const spawnY = playerCoords.y + Math.sin(randomAngle) * this.spawnDistance;
+        const spawn = this._findSpawnPoint(playerCoords);
+        const enemyType = this._pickEnemyType();
 
-        const enemy = new EnemyEntity(id, spawnX, spawnY);
+        const enemy = new EnemyEntity(id, spawn.x, spawn.y, enemyType);
         
         // 1. We must add the enemy directly to the simulation immediately
         // so it participates in physics/AI right away.
@@ -55,9 +90,47 @@ export default class EnemySpawnerSystem {
             string1: 'Enemy',
             senderId: id,
             object1: enemy,
-            float1: spawnX,
-            float2: spawnY
+            float1: spawn.x,
+            float2: spawn.y
         });
+    }
+
+    _pickEnemyType() {
+        if (this.currentWave >= 3 && Math.random() < 0.3) {
+            return 'bouncer';
+        }
+        return 'fodder';
+    }
+
+    _countAliveEnemies() {
+        let total = 0;
+        for (const [id, entity] of this.simulation.entities.entries()) {
+            if (id.startsWith('enemy_') && entity.stats && !entity.stats.isDead) {
+                total += 1;
+            }
+        }
+        return total;
+    }
+
+    _findSpawnPoint(playerCoords) {
+        for (let attempt = 0; attempt < 12; attempt += 1) {
+            const randomAngle = Math.random() * Math.PI * 2;
+            const spawnX = playerCoords.x + Math.cos(randomAngle) * this.spawnDistance;
+            const spawnY = playerCoords.y + Math.sin(randomAngle) * this.spawnDistance;
+            const clamped = {
+                x: Math.max(40, Math.min(1560, spawnX)),
+                y: Math.max(40, Math.min(1560, spawnY))
+            };
+
+            if (!this.simulation.isCircleBlocked(clamped.x, clamped.y, 20)) {
+                return clamped;
+            }
+        }
+
+        return {
+            x: Math.max(40, Math.min(1560, playerCoords.x + this.spawnDistance)),
+            y: Math.max(40, Math.min(1560, playerCoords.y))
+        };
     }
 
     destroy() {

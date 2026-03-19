@@ -34,6 +34,7 @@ export default class NetworkClient {
     connect(roomId) {
         return new Promise((resolve, reject) => {
             this.roomId = roomId;
+            console.log('[NetworkClient] Connecting to SignalingServer at', SIGNALING_URL);
             this.ws = new WebSocket(SIGNALING_URL);
 
             this.ws.onopen = () => {
@@ -105,7 +106,22 @@ export default class NetworkClient {
                     float1: msg.x,
                     float2: msg.y,
                     float3: msg.angle,
-                    float4: msg.damage
+                    float4: msg.damage,
+                    float5: msg.force,
+                    int1: msg.range,
+                    string1: msg.attackType,
+                    object1: msg.details || null
+                });
+                break;
+
+            case 'PROJECTILE_IMPACT':
+            case 'ATTACK_IMPACT':
+                EventBus.enqueueCommand(EVENTS.PROJECTILE_IMPACT, MessagePriority.HIGH, {
+                    senderId: msg.senderId,
+                    float1: msg.x,
+                    float2: msg.y,
+                    string1: msg.attackType,
+                    object1: msg.details || null
                 });
                 break;
 
@@ -223,6 +239,31 @@ export default class NetworkClient {
             type: 'INPUT_AIM',
             aimX,
             aimY
+        });
+    }
+
+    sendAttackStartInput() {
+        this._sendToHost({
+            type: 'INPUT_ATTACK_START'
+        });
+    }
+
+    sendAttackReleaseInput() {
+        this._sendToHost({
+            type: 'INPUT_ATTACK_RELEASE'
+        });
+    }
+
+    sendAttackInput() {
+        this.sendAttackStartInput();
+        this.sendAttackReleaseInput();
+    }
+
+    sendInventoryChange(value, mode) {
+        this._sendToHost({
+            type: 'INPUT_INVENTORY_CHANGE',
+            value,
+            mode
         });
     }
 

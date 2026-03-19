@@ -30,6 +30,19 @@ export default class NetworkHost {
         EventBus.subscribe(EVENTS.PLAYER_DIED, this._onPlayerDied, this);
         EventBus.subscribe(EVENTS.PLAYER_WON, this._onPlayerWon, this);
         EventBus.subscribe(EVENTS.GAME_OVER, this._onGameOver, this);
+        EventBus.subscribe(EVENTS.PROJECTILE_IMPACT, this._onProjectileImpact, this);
+    }
+
+    _onProjectileImpact(msg) {
+        if (!this.isConnected || this.connectedPlayers.size <= 1) return;
+        this._broadcastToClients({
+            type: 'PROJECTILE_IMPACT',
+            senderId: msg.senderId,
+            x: msg.float1,
+            y: msg.float2,
+            attackType: msg.string1,
+            details: msg.object1 || null
+        });
     }
 
     _onAttackPerformed(msg) {
@@ -40,7 +53,11 @@ export default class NetworkHost {
             x: msg.float1,
             y: msg.float2,
             angle: msg.float3,
-            damage: msg.float4
+            damage: msg.float4,
+            force: msg.float5,
+            range: msg.int1,
+            attackType: msg.string1,
+            details: msg.object1 || null
         });
     }
 
@@ -147,6 +164,10 @@ export default class NetworkHost {
             // as direct message types (not wrapped in 'RELAY')
             case 'INPUT_MOVE':
             case 'INPUT_AIM':
+            case 'INPUT_ATTACK':
+            case 'INPUT_ATTACK_START':
+            case 'INPUT_ATTACK_RELEASE':
+            case 'INPUT_INVENTORY_CHANGE':
                 this._processClientInput(msg);
                 break;
 
@@ -178,6 +199,24 @@ export default class NetworkHost {
                 targetId: fromPlayerId,
                 float1: msg.aimX,
                 float2: msg.aimY
+            });
+        } else if (msg.type === 'INPUT_ATTACK_START') {
+            EventBus.enqueueCommand(EVENTS.INPUT_ATTACK_START, MessagePriority.HIGH, {
+                targetId: fromPlayerId
+            });
+        } else if (msg.type === 'INPUT_ATTACK_RELEASE') {
+            EventBus.enqueueCommand(EVENTS.INPUT_ATTACK_RELEASE, MessagePriority.HIGH, {
+                targetId: fromPlayerId
+            });
+        } else if (msg.type === 'INPUT_ATTACK') {
+            EventBus.enqueueCommand(EVENTS.INPUT_ATTACK, MessagePriority.HIGH, {
+                targetId: fromPlayerId
+            });
+        } else if (msg.type === 'INPUT_INVENTORY_CHANGE') {
+            EventBus.enqueueCommand(EVENTS.INPUT_INVENTORY_CHANGE, MessagePriority.NORMAL, {
+                targetId: fromPlayerId,
+                int1: msg.value,
+                string1: msg.mode
             });
         }
     }
@@ -238,6 +277,7 @@ export default class NetworkHost {
         EventBus.unsubscribe(EVENTS.PLAYER_DIED, this._onPlayerDied, this);
         EventBus.unsubscribe(EVENTS.PLAYER_WON, this._onPlayerWon, this);
         EventBus.unsubscribe(EVENTS.GAME_OVER, this._onGameOver, this);
+        EventBus.unsubscribe(EVENTS.PROJECTILE_IMPACT, this._onProjectileImpact, this);
         if (this.ws) {
             this.ws.close();
             this.ws = null;

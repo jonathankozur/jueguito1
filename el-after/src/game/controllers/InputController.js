@@ -28,7 +28,17 @@ export default class InputController {
             up: Phaser.Input.Keyboard.KeyCodes.W,
             down: Phaser.Input.Keyboard.KeyCodes.S,
             left: Phaser.Input.Keyboard.KeyCodes.A,
-            right: Phaser.Input.Keyboard.KeyCodes.D
+            right: Phaser.Input.Keyboard.KeyCodes.D,
+            slot1: Phaser.Input.Keyboard.KeyCodes.ONE,
+            slot2: Phaser.Input.Keyboard.KeyCodes.TWO,
+            slot3: Phaser.Input.Keyboard.KeyCodes.THREE,
+            slot4: Phaser.Input.Keyboard.KeyCodes.FOUR,
+            slot5: Phaser.Input.Keyboard.KeyCodes.FIVE
+        });
+
+        // Mouse Wheel for inventory
+        this.scene.input.on('wheel', (pointer, gameObjects, deltaX, deltaY, deltaZ) => {
+            this._sendInventoryChange(deltaY > 0 ? 1 : -1, 'wheel');
         });
     }
 
@@ -58,6 +68,53 @@ export default class InputController {
                 this.lastInputAim.y = aimY;
                 this._sendAimInput(aimX, aimY);
             }
+
+            // Click/hold for attack
+            if (pointer.isDown && !this.wasPointerDown) {
+                this._sendAttackStartInput();
+            } else if (!pointer.isDown && this.wasPointerDown) {
+                this._sendAttackReleaseInput();
+            }
+            this.wasPointerDown = pointer.isDown;
+        }
+
+        // Keys 1-5 for inventory
+        for (let i = 1; i <= 5; i++) {
+            if (Phaser.Input.Keyboard.JustDown(this.cursors[`slot${i}`])) {
+                this._sendInventoryChange(i, 'key');
+            }
+        }
+    }
+
+    _sendAttackStartInput() {
+        if (this.inputMode === 'remote' && this.networkClient) {
+            this.networkClient.sendAttackStartInput();
+        } else {
+            EventBus.enqueueCommand(EVENTS.INPUT_ATTACK_START, MessagePriority.HIGH, {
+                targetId: this.playerId
+            });
+        }
+    }
+
+    _sendAttackReleaseInput() {
+        if (this.inputMode === 'remote' && this.networkClient) {
+            this.networkClient.sendAttackReleaseInput();
+        } else {
+            EventBus.enqueueCommand(EVENTS.INPUT_ATTACK_RELEASE, MessagePriority.HIGH, {
+                targetId: this.playerId
+            });
+        }
+    }
+
+    _sendInventoryChange(value, mode) {
+        if (this.inputMode === 'remote' && this.networkClient) {
+            this.networkClient.sendInventoryChange(value, mode);
+        } else {
+            EventBus.enqueueCommand(EVENTS.INPUT_INVENTORY_CHANGE, MessagePriority.NORMAL, {
+                targetId: this.playerId,
+                int1: value,
+                string1: mode // 'wheel' or 'key'
+            });
         }
     }
 

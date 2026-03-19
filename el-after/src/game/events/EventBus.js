@@ -33,7 +33,16 @@ export const MessageType = {
     REMOTE_PLAYER_LEFT: 14,   // A remote player disconnected
     PLAYERS_SYNCED: 15,       // Client received the full player list from host
     GAME_START: 16,           // Host signals all clients to start the game
-    PLAYER_WON: 17            // Last player alive wins the match
+    PLAYER_WON: 17,           // Last player alive wins the match
+    INPUT_ATTACK: 18,         // Triggered by click/key
+    INPUT_INVENTORY_CHANGE: 19, // Triggered by 1-5 or mouse wheel
+    ATTACK_IMPACT: 20,
+    PLAYER_WEAPON_CHANGED: 21,
+    WAVE_CHANGED: 22,
+    INPUT_ATTACK_START: 23,
+    INPUT_ATTACK_RELEASE: 24,
+    PROJECTILE_IMPACT: 25,
+    ATTACK_CHARGE_UPDATED: 26
 };
 
 /**

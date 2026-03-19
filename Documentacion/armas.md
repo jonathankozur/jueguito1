@@ -1,73 +1,72 @@
-# Catálogo de Armas
+# Catálogo de Armas y Sistema de Combate
 
-Este documento define las armas disponibles en "El After del Conurbano". El sistema de armas sigue la premisa del combate híbrido: algunas son de uso manual (con apuntado y cooldown/costo) y otras son pasivas/automáticas (se disparan solas mientras te mueves). 
-
----
-
-## 1. Ficha del Sistema: Armas
-- **Sistema:** Arsenal y Modificadores de Daño.
-- **Objetivo:** Darle al jugador herramientas temáticas y divertidas para la supervivencia, permitiendo variedad de "Builds".
-- **Descripción:** El jugador empieza siempre con "Los Puños" (o su arma inicial equipada desde el Boliche). A medida que avanza o gasta dinero en el Hub, puede desbloquear, comprar y mejorar su arsenal base.
+Este documento define las mecánicas de combate y el arsenal disponible en "El After del Conurbano". El sistema ha evolucionado de un modelo híbrido a un **Sistema de Combate Manual**, donde la agencia del jugador es primordial.
 
 ---
 
-## 2. Variables de Balance (Atributos)
-Cada arma se define por los siguientes atributos, que pueden mejorarse en el *Tranza del Boliche*:
-- **Daño Base (DPS o Daño Burst):** Cuánta vida resta por impacto.
-- **Rango/Alcance:** ¿Melee o Distancia?
-- **Área de Efecto (AoE):** ¿Golpea a un solo objetivo (Single Target) o a varios que estén cerca?
-- **Cadencia / Cooldown:** Tiempo que tarda en volver a usarse.
-- **Costo de Aguante (Solo Manuales):** Algunas habilidades manuales requieren un costo.
-- **Efecto Especial:** (Ej: Empuje/Knockback, Sangrado, Quemadura, Parálisis).
+## 1. Mecánica de Ataque Manual
+A diferencia de los sistemas de auto-ataque, en este juego cada golpe o disparo debe ser ejecutado por el jugador:
+- **Acción Base:** Click Izquierdo (o tecla asignada).
+- **Apuntado:** El ataque se dirige hacia la posición del cursor del ratón o la dirección en la que mira el personaje.
+- **Inventario Rápido:** El jugador puede alternar entre 5 ranuras de equipo usando las teclas **1 al 5** o la **rueda del ratón**.
 
 ---
 
-## 3. Armas Base (Comprables en el Boliche)
-Estas armas se compran con **Dinero** en el Hub para dictar con qué herramienta arranca el Run tu personaje. 
+## 2. Tipos de Ataque y Lógica de Superficies
 
-**Reglas de Mejora en el Boliche:**
-- **Niveles Infinitos:** Las armas pueden mejorarse de forma ilimitada pagando dinero en el Hub.
-- **Precio Exponencial:** El costo del siguiente nivel crece exponencialmente (Ej: Nvl 2 = $500, Nvl 3 = $2.000, Nvl 4 = $10.000).
-- **Sin Mutaciones:** El arma siempre es la misma. Un Tramontina nivel 1 y un Tramontina nivel 150 son funcionalmente idénticos, solo que el de nivel 150 hace un daño absurdo.
-- **Feedback Visual:** Al no cambiar de forma el arma, visualmente la mejora se representa en el juego añadiendo destellos, partículas neón, estelas de luz o "brillo de rareza" (Ej: a Nivel 50 tu bate de béisbol deja una estela fucsia al abanicar).
-- **Progresión Unidimensional (In-Hub):** Cada nivel del Hub mejora pura y exclusivamente el escalado de una característica principal (generalmente el Daño Base). Velocidad, área de efecto u otras características complejas no mutan, a menos que el arma se potencie con Stats del personaje (bebidas/niveles in-run).
+Todos los ataques tienen una **superficie de acción** definida:
+
+### 2.1. Ataques Melee (Cuerpo a Cuerpo)
+Se ejecutan en un área inmediata al personaje.
+- **Superficie Delantera:** Un rectángulo o arco frente al personaje (ej. un cuchillazo).
+- **Superficie Circular:** Un área de efecto (AoE) alrededor del personaje (ej. un giro con un bate).
+- **Impacto:** Si un enemigo está dentro de la superficie al momento de la activación, recibe daño y empuje.
+
+### 2.2. Ataques a Distancia (Proyectiles)
+Disparan un objeto que viaja por el escenario hasta impactar o perder fuerza.
+- **Lógica de Colisión y Materiales:** El proyectil puede atravesar superficies dependiendo de su fuerza y el material:
+  - **Materiales Blandos (Madera, Plástico):** Reducen un 20% la fuerza del proyectil pero permiten que continúe.
+  - **Materiales Medios (Ladrillo, Metal fino):** Reducen un 60% la fuerza.
+  - **Materiales Duros (Hormigón, Muros de contención):** Detienen el proyectil por completo (fuerza = 0).
+- **Pérdida de Fuerza:** Un proyectil se detiene cuando su fuerza llega a cero o impacta un material impenetrable.
+
+### 2.3. Armas Arrojadizas
+Siguen una trayectoria aérea parabólica.
+- **Sobrepaso:** Pueden pasar por encima de obstáculos bajos (personas, cercas, objetos decorativos).
+- **Bloqueo:** Se detienen si chocan contra una superficie alta (paredes de casas, edificios).
+- **Efecto al Caer:** Al llegar a su destino o chocar con una pared, generan una **Superficie de Acción de Área** (explosión, charco de fuego, cristales rotos).
 
 ---
 
-## 4. El Catálogo Inicial
+## 3. Sistema de Empuje (Knockback)
+El combate físico incluye una respuesta de masa y fuerza:
+- **Cálculo:** El desplazamiento del defensor depende de: `Fuerza del Atacante - Aguante del Defensor`.
+- **Objetos:** Los proyectiles y golpes también pueden mover objetos del escenario si su fuerza es suficiente.
 
-### 4.1. Cuchillo Tramontina
-- **Tipo:** Cuerpo a cuerpo (Ataque Automático / Auto-Target Frontal).
-- **Mecánica:** Lanza puñaladas cortas y rápidas frente al personaje de manera constante.
-- **Progresión por Nivel (Hub):** + Daño Base (Escalado fijo por nivel).
-- **Precio Inicial:** Gratis (Arma por defecto).
+---
 
-### 4.2. Bate de Béisbol (Abollado)
-- **Tipo:** Cuerpo a cuerpo (Habilidad Manual en Área / Knockback).
-- **Mecánica:** Un "abanico" generoso frente al jugador que se lanza con Click Izquierdo. Empuja a los enemigos hacia atrás con gran fuerza. Útil para hacer espacio en hordas.
-- **Progresión por Nivel (Hub):** + Daño Base de Impacto.
-- **Precio Inicial:** Barato ($1.000).
+## 4. Variables de Balance (Atributos)
+- **Daño:** Vida restada por impacto.
+- **Fuerza de Salida / Empuje:** Determina el "knockback" y la capacidad de perforación en proyectiles.
+- **Cadencia / Cooldown:** Tiempo entre ataques manuales.
+- **Alcance / Radio:** Tamaño de la superficie de acción.
 
-### 4.3. Botella Rota
-- **Tipo:** Proyectil arrojadizo (Automático Radial).
-- **Mecánica:** Se arroja sola en arco al enemigo más cercano. Tiene una pequeña área de daño al romperse contra el piso o el objetivo.
-- **Progresión por Nivel (Hub):** + Daño Explosivo de los cristales.
-- **Precio Inicial:** Barato ($1.500).
+---
 
-### 4.4. El Chumbo (Revólver / Pistola Calibre .38)
-- **Tipo:** Proyectil de Fuego a Distancia (Automático / Single Target).
-- **Mecánica:** Dispara balas muy rápidas al enemigo más alejado en tu rango de visión, matando objetivos que aún no llegan al centro del caos.
-- **Progresión por Nivel (Hub):** + Daño de Perforación Fija.
-- **Precio Inicial:** Medio ($5.000).
+## 5. El Catálogo Inicial (Slots de Acceso Rápido)
 
-### 4.5. La Escopeta (Recortada)
-- **Tipo:** Proyectil Disperso (Habilidad Manual - Click Izquierdo).
-- **Mecánica:** Dispara un cono de perdigones masivo hacia el puntero del ratón. Mucho daño en "Burst" (ráfaga de cerca) pero de corto alcance y con un Cooldown notable entre disparos.
-- **Progresión por Nivel (Hub):** + Daño por Perdigón.
-- **Precio Inicial:** Caro ($12.000).
+| Slot | Arma | Tipo | Descripción |
+| :--- | :--- | :--- | :--- |
+| **1** | **Los Puños** | Melee (Circular) | Ataque básico. Poco daño pero empuje decente. |
+| **2** | **Cuchillo Tramontina** | Melee (Frontal) | Ataque rápido y preciso en un rectángulo corto. |
+| **3** | **El Chumbo (.38)** | Distancia | Proyectil con alta fuerza de perforación. |
+| **4** | **Botella Rota** | Arrojadiza | Se lanza y crea un área de cristales al romper contra el suelo. |
+| **5** | **Molotov** | Arrojadiza | Crea un área de fuego persistente. |
 
-### 4.6. Molotov Casera
-- **Tipo:** Control de Zonas (Habilidad Manual Secundaria - Click Derecho).
-- **Mecánica:** Lanzas una botella envuelta en fuego hacia donde apunta el ratón. Deja un charco de llamas en el asfalto por 3 segundos. Ideal para cortar calles o cubrir retiradas.
-- **Progresión por Nivel (Hub):** + Daño de Quemadura por Segundo (DoT).
-- **Precio Inicial:** Muy Caro ($20.000).
+---
+
+## 6. Progresión y Mejoras (En el Boliche)
+Las armas se mejoran de forma ilimitada en el Hub:
+- **Niveles:** Aumentan principalmente el **Daño** y la **Fuerza**.
+- **Visuales:** A mayor nivel, el arma o el proyectil ganan efectos visuales (brillos, estelas, partículas) para reflejar su poder sin cambiar el modelo base.
+- **Costo:** El precio de mejora escala exponencialmente por cada nivel.

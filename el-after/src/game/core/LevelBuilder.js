@@ -1,5 +1,6 @@
 import EventBus, { EVENTS, MessagePriority } from '../events/EventBus';
 import PlayerEntity from '../entities/Player';
+import StaticObstacleEntity from '../entities/StaticObstacleEntity';
 
 // Starting positions spread around the arena center for up to 4 players
 const PLAYER_SPAWN_POSITIONS = [
@@ -17,6 +18,36 @@ export default class LevelBuilder {
     buildLevel(playerIds = ['player_1']) {
         playerIds.forEach((playerId, index) => {
             this._spawnPlayer(playerId, index);
+        });
+
+        this._spawnObstacles();
+    }
+
+    _spawnObstacles() {
+        const obstacles = [
+            { id: 'bar_norte', x: 800, y: 230, w: 680, h: 60, mat: 'hard', hLevel: 'high' },
+            { id: 'escenario_sur', x: 800, y: 1370, w: 680, h: 60, mat: 'hard', hLevel: 'high' },
+            { id: 'cabina_oeste', x: 240, y: 800, w: 60, h: 480, mat: 'hard', hLevel: 'high' },
+            { id: 'patio_este', x: 1360, y: 800, w: 60, h: 480, mat: 'hard', hLevel: 'high' },
+            { id: 'muro_centro_izq', x: 650, y: 800, w: 40, h: 180, mat: 'hard', hLevel: 'high' },
+            { id: 'muro_centro_der', x: 950, y: 800, w: 40, h: 180, mat: 'hard', hLevel: 'high' },
+            { id: 'mesa_vip_izq', x: 520, y: 620, w: 180, h: 36, mat: 'medium', hLevel: 'low' },
+            { id: 'mesa_vip_der', x: 1080, y: 620, w: 180, h: 36, mat: 'medium', hLevel: 'low' },
+            { id: 'auto_izq', x: 520, y: 990, w: 140, h: 72, mat: 'medium', hLevel: 'low' },
+            { id: 'auto_der', x: 1080, y: 990, w: 140, h: 72, mat: 'medium', hLevel: 'low' },
+            { id: 'valla_superior', x: 800, y: 530, w: 260, h: 28, mat: 'soft', hLevel: 'low' },
+            { id: 'valla_inferior', x: 800, y: 1070, w: 260, h: 28, mat: 'soft', hLevel: 'low' }
+        ];
+
+        obstacles.forEach(ob => {
+            const entity = new StaticObstacleEntity(ob.id, ob.x, ob.y, ob.w, ob.h, ob.mat, ob.hLevel);
+            EventBus.enqueueEvent(EVENTS.ENTITY_CREATED, MessagePriority.NORMAL, {
+                object1: entity,
+                string1: 'Obstacle',
+                senderId: ob.id,
+                float1: ob.x,
+                float2: ob.y
+            });
         });
     }
 

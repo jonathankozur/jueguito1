@@ -1,130 +1,187 @@
 import EventBus, { EVENTS, MessagePriority } from '../events/EventBus';
 import StatsComponent from '../components/StatsComponent';
 
+const ENEMY_TYPES = {
+    fodder: {
+        attackRange: 34,
+        radius: 16,
+        stats: {
+            maxHp: 50,
+            baseSpeed: 100,
+            damage: 5,
+            attackRate: 1000,
+            strength: 5,
+            endurance: 5
+        }
+    },
+    bouncer: {
+        attackRange: 42,
+        radius: 20,
+        stats: {
+            maxHp: 120,
+            baseSpeed: 70,
+            damage: 10,
+            attackRate: 1350,
+            strength: 12,
+            endurance: 16
+        }
+    }
+};
+
 export default class EnemyEntity {
     constructor(id, x, y, type = 'fodder') {
+        const config = ENEMY_TYPES[type] || ENEMY_TYPES.fodder;
+
         this.id = id;
         this.x = x;
         this.y = y;
         this.velX = 0;
         this.velY = 0;
         this.angle = 0;
-        this.type = type;
-        this.attackRange = 30; // Closer range, lets them touch the player (r:16 + r:12 approx)
-        // Add random starting offset to prevent 10 enemies attacking on the exact same frame
-        this.timeSinceLastAttack = Math.random() * 500; 
+        this.type = config === ENEMY_TYPES.fodder ? 'fodder' : type;
+        this.attackRange = config.attackRange;
+        this.timeSinceLastAttack = Math.random() * 500;
 
-        // Fodder is weak but numerous
-        this.stats = new StatsComponent({
-            maxHp: 50,
-            baseSpeed: 100, // Slower than player (200)
-            damage: 5,
-            attackRate: 1000
-        });
-
-        this._dirty = true; // Force first render
-        
-        // Listen for damage dealt to this specific enemy
-        // We will implement this later when CombatSystem is ready
+        this.stats = new StatsComponent(config.stats);
+        this.radius = config.radius;
+        this.knockbackVelX = 0;
+        this.knockbackVelY = 0;
+        this.knockbackRemainingMs = 0;
+        this.hitstunRemainingMs = 0;
+        this._dirty = true;
     }
 
-    // AI logic: Chase the player
-    // The GameSimulation passes the player's current coordinates to all enemies
     update(deltaMs, playerTarget) {
         if (this.stats.isDead) return;
 
         const prevX = this.x;
         const prevY = this.y;
+        const prevAngle = this.angle;
 
-        if (playerTarget) {
-            // 1. Calculate direction vector towards player
+        if (this.isControlled()) {
+            this.updateImpulse(deltaMs);
+            this.timeSinceLastAttack = 0;
+        } else if (playerTarget) {
             const dx = playerTarget.x - this.x;
             const dy = playerTarget.y - this.y;
-            const distance = Math.sqrt(dx * dx + dy * dy);
+            const distance = Math.sqrt((dx * dx) + (dy * dy));
 
-            // 2. ALWAYS face the target, even if stopped
             if (distance > 0) {
                 this.angle = Math.atan2(dy, dx);
             }
 
-            // 3. Normalize and apply speed only if outside attack range
             if (distance > this.attackRange) {
                 const speed = this.stats.getSpeed();
                 this.velX = (dx / distance) * speed;
                 this.velY = (dy / distance) * speed;
+                this.x += this.velX * (deltaMs / 1000);
+                this.y += this.velY * (deltaMs / 1000);
+                this.timeSinceLastAttack = 0;
             } else {
                 this.velX = 0;
                 this.velY = 0;
-            }
-        } else {
-            // Idle if no target
-            this.velX = 0;
-            this.velY = 0;
-        }
-
-        // 3. Move
-        this.x += this.velX * (deltaMs / 1000);
-        this.y += this.velY * (deltaMs / 1000);
-
-        if (this.x !== prevX || this.y !== prevY) {
-            this._dirty = true;
-        }
-
-        // 4. Combat Logic: Attack if in range
-        if (playerTarget) {
-            // Verify if we are stopped because we reached the target distance
-            // Math.sqrt could be expensive to run twice, so we just check if velocity is 0
-            // but we only attack if we actually have a target
-            if (this.velX === 0 && this.velY === 0) {
                 this.timeSinceLastAttack += deltaMs;
+
                 if (this.timeSinceLastAttack >= this.stats.attackRate) {
                     this.timeSinceLastAttack = 0;
-                    
-                    // Attack vector: from me to where I'm looking (angle)
                     EventBus.enqueueCommand(EVENTS.ATTACK_PERFORMED, MessagePriority.HIGH, {
                         senderId: this.id,
                         float1: this.x,
                         float2: this.y,
                         float3: this.angle,
-                        float4: this.stats.damage
+                        float4: this.stats.damage,
+                        float5: this.stats.strength * 2,
+                        int1: this.attackRange,
+                        string1: 'melee_frontal',
+                        object1: {
+                            weaponId: `${this.type}_melee`,
+                            weaponName: `${this.type}_melee`,
+                            family: 'enemy_melee',
+                            attackShape: 'melee_frontal',
+                            damage: this.stats.damage,
+                            impactForce: this.stats.strength * 2,
+                            reach: this.attackRange,
+                            hitstunMs: 110,
+                            sweepAngle: 60
+                        }
                     });
                 }
-            } else {
-                // Reset timer if we are moving so we don't instantly bite upon arriving
-                this.timeSinceLastAttack = 0;
             }
+        } else {
+            this.velX = 0;
+            this.velY = 0;
         }
 
-        // 5. Emit State for Renderer
-        // Queremos emitir siempre que haya un re-cálculo para que el UI rote al enemigo correctamente
-        // y actualice su ángulo incluso si está frenado.
+        if (this.x !== prevX || this.y !== prevY || this.angle !== prevAngle) {
+            this._dirty = true;
+        }
+
         if (this._dirty || playerTarget) {
             EventBus.enqueueEvent(EVENTS.PLAYER_STATE_UPDATED, MessagePriority.NORMAL, {
                 string1: 'moved',
-                senderId: this.id, // e.g., 'enemy_1'
+                senderId: this.id,
                 float1: this.x,
                 float2: this.y,
                 float3: this.velX,
                 float4: this.velY,
-                float5: this.angle // Manda la "mirada" actualizada
+                float5: this.angle
             });
             this._dirty = false;
         }
+    }
+
+    isControlled() {
+        return this.knockbackRemainingMs > 0 || this.hitstunRemainingMs > 0;
+    }
+
+    applyImpulse(payload) {
+        const speed = payload.speed || 0;
+        const durationMs = payload.durationMs || 0;
+
+        if (speed <= 0 && !payload.hitstunMs) {
+            return;
+        }
+
+        this.knockbackVelX = Math.cos(payload.angle) * speed;
+        this.knockbackVelY = Math.sin(payload.angle) * speed;
+        this.knockbackRemainingMs = Math.max(this.knockbackRemainingMs, durationMs);
+        this.hitstunRemainingMs = Math.max(this.hitstunRemainingMs, payload.hitstunMs || 0);
+        this.velX = 0;
+        this.velY = 0;
+        this.timeSinceLastAttack = 0;
+        this._dirty = true;
+    }
+
+    updateImpulse(deltaMs) {
+        const knockbackStepMs = Math.min(deltaMs, this.knockbackRemainingMs);
+        if (knockbackStepMs > 0) {
+            this.x += this.knockbackVelX * (knockbackStepMs / 1000);
+            this.y += this.knockbackVelY * (knockbackStepMs / 1000);
+
+            const decay = Math.exp(-knockbackStepMs / 95);
+            this.knockbackVelX *= decay;
+            this.knockbackVelY *= decay;
+            this.knockbackRemainingMs = Math.max(0, this.knockbackRemainingMs - knockbackStepMs);
+        }
+
+        this.hitstunRemainingMs = Math.max(0, this.hitstunRemainingMs - deltaMs);
+
+        if (this.knockbackRemainingMs <= 0) {
+            this.knockbackVelX = 0;
+            this.knockbackVelY = 0;
+        }
+
+        this.velX = this.knockbackRemainingMs > 0 ? this.knockbackVelX : 0;
+        this.velY = this.knockbackRemainingMs > 0 ? this.knockbackVelY : 0;
     }
 
     destroy() {
         // Cleanup subscriptions if any
     }
 
-    /**
-     * Called by CombatSystem when this entity is hit.
-     * Owns the responsibility of updating stats and broadcasting the state change.
-     * @returns {boolean} true if the enemy died from this hit
-     */
     receiveDamage(amount) {
         this.stats.takeDamage(amount);
-        
-        // Notify the View layer (MainScene HP bars)
+
         EventBus.enqueueEvent(EVENTS.ENTITY_HP_CHANGED, MessagePriority.HIGH, {
             senderId: this.id,
             float1: this.stats.currentHp,

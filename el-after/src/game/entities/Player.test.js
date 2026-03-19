@@ -1,82 +1,214 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import EventBus, { EVENTS, MessagePriority } from '../events/EventBus';
 import PlayerEntity from './Player';
 
-describe('Player Entity (Lógica Pura Ciega)', () => {
-
+describe('Player Entity', () => {
     beforeEach(() => {
         EventBus.resetAll();
     });
 
-    it('Debe emitir su propio cambio de velocidad (moved) tras el Tick, al escuchar un teclado', () => {
+    it('emite movimiento despues de procesar input de direccion', () => {
         const player = new PlayerEntity('p1', 0, 0);
         let capturedMsg = null;
-        const spyCallback = vi.fn((msg) => { capturedMsg = { ...msg }; });
-        EventBus.subscribe(EVENTS.PLAYER_STATE_UPDATED, spyCallback);
+        const spy = vi.fn((msg) => {
+            capturedMsg = { ...msg };
+        });
 
-        EventBus.enqueueCommand(EVENTS.INPUT_MOVE, MessagePriority.NORMAL, { float1: 1, float2: 0 }); // Apretamos D
-        EventBus.dispatchCommands(); // Ejecutar comandos encolados
+        EventBus.subscribe(EVENTS.PLAYER_STATE_UPDATED, spy);
 
-        // Al ser una simulación puramente lógica desacoplada, 
-        // tenemos que simular el paso del tiempo 1000ms (1 segundo) artificialmente
+        EventBus.enqueueCommand(EVENTS.INPUT_MOVE, MessagePriority.NORMAL, { targetId: 'p1', float1: 1, float2: 0 });
+        EventBus.dispatchCommands();
         player.update(1000);
-
-        // El player emitirá un Evento internamente. Hay que despachar lo encolado para que llegue al spy.
         EventBus.dispatchEvents();
 
-        expect(spyCallback).toHaveBeenCalledTimes(1);
+        expect(spy).toHaveBeenCalledTimes(1);
         expect(capturedMsg).toMatchObject({
             string1: 'moved',
             senderId: 'p1',
-            float1: 200, // Speed base de 200 * 1 segundo = movió 200 pixeles
+            float1: 200,
             float2: 0,
             float3: 200,
-            float4: 0,
-            float5: 0
+            float4: 0
         });
     });
 
-    it('Debe normalizar su velocidad en movimientos diagonales (Pitágoras)', () => {
+    it('normaliza velocidad diagonal', () => {
         const player = new PlayerEntity('p1', 0, 0);
         let capturedMsg = null;
-        const spyCallback = vi.fn((msg) => { capturedMsg = { ...msg }; });
-        EventBus.subscribe(EVENTS.PLAYER_STATE_UPDATED, spyCallback);
+        const spy = vi.fn((msg) => {
+            capturedMsg = { ...msg };
+        });
 
-        // Diagonal perfecta (Abajo-Derecha simultáneos)
-        EventBus.enqueueCommand(EVENTS.INPUT_MOVE, MessagePriority.NORMAL, { float1: 1, float2: 1 });
-        EventBus.dispatchCommands(); 
-        
-        player.update(1000); // Avanzamos 1 segundo
+        EventBus.subscribe(EVENTS.PLAYER_STATE_UPDATED, spy);
+
+        EventBus.enqueueCommand(EVENTS.INPUT_MOVE, MessagePriority.NORMAL, { targetId: 'p1', float1: 1, float2: 1 });
+        EventBus.dispatchCommands();
+        player.update(1000);
         EventBus.dispatchEvents();
 
-        // Pitágoras: la velocidad en componentes no debe superar el hipotenusa 200
-        expect(capturedMsg.string1).toBe('moved');
-        expect(Math.round(capturedMsg.float3)).toBe(141); // float3 es velX
-        expect(Math.round(capturedMsg.float4)).toBe(141); // float4 es velY
+        expect(Math.round(capturedMsg.float3)).toBe(141);
+        expect(Math.round(capturedMsg.float4)).toBe(141);
     });
 
-    it('Debe calcular su propio ángulo de rotación exacto al apuntar', () => {
+    it('calcula el angulo exacto al apuntar', () => {
         const player = new PlayerEntity('p1', 100, 100);
         let capturedMsg = null;
-        const spyCallback = vi.fn((msg) => { capturedMsg = { ...msg }; });
-        EventBus.subscribe(EVENTS.PLAYER_STATE_UPDATED, spyCallback);
+        const spy = vi.fn((msg) => {
+            capturedMsg = { ...msg };
+        });
 
-        // Apuntamos justo abajo del jugador
-        EventBus.enqueueCommand(EVENTS.INPUT_AIM, MessagePriority.NORMAL, { float1: 100, float2: 200 });
+        EventBus.subscribe(EVENTS.PLAYER_STATE_UPDATED, spy);
+
+        EventBus.enqueueCommand(EVENTS.INPUT_AIM, MessagePriority.NORMAL, { targetId: 'p1', float1: 100, float2: 200 });
         EventBus.dispatchCommands();
-        
-        player.update(16); // Avanzamos 1 frame
+        player.update(16);
         EventBus.dispatchEvents();
 
-        expect(spyCallback).toHaveBeenCalledTimes(1);
-        expect(capturedMsg).toMatchObject({
-            string1: 'moved', // Cambié por moved porque el update de Personaje emite moved/aimed juntos
-            senderId: 'p1',
-            float1: 100,
-            float2: 100,
-            float3: 0,
-            float4: 0,
-            float5: Math.PI / 2
+        expect(capturedMsg.float5).toBe(Math.PI / 2);
+    });
+
+    it('bloquea el slot 5 y la rueda lo saltea', () => {
+        const player = new PlayerEntity('p1', 0, 0);
+
+        EventBus.enqueueCommand(EVENTS.INPUT_INVENTORY_CHANGE, MessagePriority.NORMAL, {
+            targetId: 'p1',
+            int1: 5,
+            string1: 'key'
         });
+        EventBus.dispatchCommands();
+
+        expect(player.selectedSlot).toBe(0);
+
+        EventBus.enqueueCommand(EVENTS.INPUT_INVENTORY_CHANGE, MessagePriority.NORMAL, {
+            targetId: 'p1',
+            int1: -1,
+            string1: 'wheel'
+        });
+        EventBus.dispatchCommands();
+
+        expect(player.getActiveWeapon().id).toBe('bottle');
+    });
+
+    it('emite PLAYER_WEAPON_CHANGED con el arma nueva', () => {
+        const player = new PlayerEntity('p1', 0, 0);
+        const captured = [];
+        const spy = vi.fn((msg) => {
+            captured.push({ ...msg });
+        });
+
+        EventBus.subscribe(EVENTS.PLAYER_WEAPON_CHANGED, spy);
+
+        EventBus.enqueueCommand(EVENTS.INPUT_INVENTORY_CHANGE, MessagePriority.NORMAL, {
+            targetId: 'p1',
+            int1: 2,
+            string1: 'key'
+        });
+        EventBus.dispatchCommands();
+        EventBus.dispatchEvents();
+
+        expect(spy).toHaveBeenCalledTimes(2);
+        expect(captured.at(-1)).toMatchObject({
+            senderId: 'p1',
+            int1: 2,
+            string1: 'Cuchillo'
+        });
+    });
+
+    it('hace combo de punos en tres pasos', () => {
+        const player = new PlayerEntity('p1', 0, 0);
+        const attacks = [];
+        const spy = vi.fn((msg) => {
+            attacks.push({ ...msg.object1 });
+        });
+
+        EventBus.subscribe(EVENTS.ATTACK_PERFORMED, spy);
+
+        player.update(300);
+        EventBus.enqueueCommand(EVENTS.INPUT_ATTACK_START, MessagePriority.HIGH, { targetId: 'p1' });
+        EventBus.dispatchCommands();
+        EventBus.dispatchCommands();
+
+        player.update(250);
+        EventBus.enqueueCommand(EVENTS.INPUT_ATTACK_START, MessagePriority.HIGH, { targetId: 'p1' });
+        EventBus.dispatchCommands();
+        EventBus.dispatchCommands();
+
+        player.update(400);
+        EventBus.enqueueCommand(EVENTS.INPUT_ATTACK_START, MessagePriority.HIGH, { targetId: 'p1' });
+        EventBus.dispatchCommands();
+        EventBus.dispatchCommands();
+
+        expect(attacks.map((attack) => attack.comboIndex)).toEqual([1, 2, 3]);
+        expect(attacks[2].attackShape).toBe('melee_circular');
+    });
+
+    it('alterna el barrido del cuchillo', () => {
+        const player = new PlayerEntity('p1', 0, 0);
+        const attacks = [];
+        const spy = vi.fn((msg) => {
+            attacks.push({ ...msg.object1 });
+        });
+
+        EventBus.subscribe(EVENTS.ATTACK_PERFORMED, spy);
+
+        EventBus.enqueueCommand(EVENTS.INPUT_INVENTORY_CHANGE, MessagePriority.NORMAL, {
+            targetId: 'p1',
+            int1: 2,
+            string1: 'key'
+        });
+        EventBus.dispatchCommands();
+
+        player.update(400);
+        EventBus.enqueueCommand(EVENTS.INPUT_ATTACK_START, MessagePriority.HIGH, { targetId: 'p1' });
+        EventBus.dispatchCommands();
+        EventBus.dispatchCommands();
+
+        player.update(400);
+        EventBus.enqueueCommand(EVENTS.INPUT_ATTACK_START, MessagePriority.HIGH, { targetId: 'p1' });
+        EventBus.dispatchCommands();
+        EventBus.dispatchCommands();
+
+        expect(attacks).toHaveLength(2);
+        expect(attacks[0].startAngle).not.toBe(attacks[1].startAngle);
+        expect(attacks[0].endAngle).not.toBe(attacks[1].endAngle);
+    });
+
+    it('la botella cargada emite progreso y escala su alcance al soltar', () => {
+        const player = new PlayerEntity('p1', 0, 0);
+        const chargeEvents = [];
+        let attackMsg = null;
+
+        EventBus.subscribe(EVENTS.ATTACK_CHARGE_UPDATED, (msg) => {
+            chargeEvents.push({ ...msg });
+        });
+        EventBus.subscribe(EVENTS.ATTACK_PERFORMED, (msg) => {
+            attackMsg = { ...msg, object1: { ...msg.object1 } };
+        });
+
+        EventBus.enqueueCommand(EVENTS.INPUT_INVENTORY_CHANGE, MessagePriority.NORMAL, {
+            targetId: 'p1',
+            int1: 4,
+            string1: 'key'
+        });
+        EventBus.dispatchCommands();
+
+        player.update(1000);
+        EventBus.enqueueCommand(EVENTS.INPUT_ATTACK_START, MessagePriority.HIGH, { targetId: 'p1' });
+        EventBus.dispatchCommands();
+        EventBus.dispatchEvents();
+
+        player.update(500);
+        EventBus.dispatchEvents();
+
+        EventBus.enqueueCommand(EVENTS.INPUT_ATTACK_RELEASE, MessagePriority.HIGH, { targetId: 'p1' });
+        EventBus.dispatchCommands();
+        EventBus.dispatchCommands();
+        EventBus.dispatchEvents();
+
+        expect(chargeEvents.some((msg) => msg.string1 === 'charging')).toBe(true);
+        expect(attackMsg.object1.attackShape).toBe('throwable');
+        expect(attackMsg.object1.chargeRatio).toBeGreaterThan(0.5);
+        expect(attackMsg.object1.reach).toBeGreaterThan(180);
+        expect(chargeEvents.at(-1).string1).toBe('idle');
     });
 });

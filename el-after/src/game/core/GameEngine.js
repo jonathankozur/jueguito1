@@ -96,6 +96,14 @@ export default class GameEngine {
                 : ['player_1'];
             this.levelBuilder.buildLevel(allPlayerIds);
             this.gameState = 'PLAYING';
+
+            if (this.simulation?.enemySpawner) {
+                if (this.mode === 'solo') {
+                    this.simulation.enemySpawner.startSoloRun();
+                } else {
+                    this.simulation.enemySpawner.stopRun();
+                }
+            }
         }
     }
 
