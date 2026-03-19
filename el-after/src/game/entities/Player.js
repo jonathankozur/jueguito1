@@ -1,6 +1,7 @@
 import EventBus, { EVENTS, MessagePriority } from '../events/EventBus';
 import StatsComponent from '../components/StatsComponent';
-import { cloneWeaponLoadout, getChargeRatio, getSelectableWeaponSlots, lerp } from '../data/weapons';
+import { cloneWeaponLoadout, getChargeRatio, getSelectableWeaponSlots } from '../data/weapons';
+import { buildAttackProfile } from '../data/attackProfiles';
 
 const CHARGE_BUCKETS = 10;
 
@@ -242,87 +243,26 @@ export default class PlayerEntity {
     }
 
     buildAttackProfile(weapon, options = {}) {
-        const baseAttack = {
-            weaponId: weapon.id,
-            weaponName: weapon.name,
-            slot: weapon.slot,
-            family: weapon.family,
-            attackShape: weapon.attackShape,
-            damage: weapon.damage,
-            impactForce: weapon.impactForce,
-            cooldownMs: weapon.cooldownMs,
-            reach: weapon.reach,
-            hitstunMs: weapon.hitstunMs,
-            sweepAngle: weapon.sweepAngle,
-            wallBehavior: weapon.wallBehavior,
-            aoeRadius: weapon.aoeRadius,
-            projectileRadius: weapon.projectileRadius || 4,
-            projectileSpeed: weapon.projectileSpeed || 0,
-            materialLoss: weapon.materialLoss ? { ...weapon.materialLoss } : undefined
-        };
+        if (weapon.family === 'combo_melee' && this.comboTimerMs > weapon.comboWindowMs) {
+            this.comboIndex = 0;
+        }
+
+        const result = buildAttackProfile(weapon, this.angle, {
+            comboIndex: this.comboIndex,
+            swingDirection: this.nextKnifeSwingDirection,
+            chargeMs: options.chargeMs
+        });
 
         if (weapon.family === 'combo_melee') {
-            if (this.comboTimerMs > weapon.comboWindowMs) {
-                this.comboIndex = 0;
-            }
-
-            const step = weapon.combo[this.comboIndex] || weapon.combo[0];
-            const comboIndex = this.comboIndex;
-
-            this.comboIndex = (this.comboIndex + 1) % weapon.combo.length;
+            this.comboIndex = result.nextComboIndex ?? this.comboIndex;
             this.comboTimerMs = 0;
-
-            const comboAttack = {
-                ...baseAttack,
-                ...step,
-                family: weapon.family,
-                comboIndex: comboIndex + 1,
-                comboLabel: step.label
-            };
-
-            return this.applySweepAngles(comboAttack, step.sweepDirection);
         }
 
         if (weapon.family === 'melee_sweep') {
-            const direction = this.nextKnifeSwingDirection;
-            this.nextKnifeSwingDirection *= -1;
-            return this.applySweepAngles(baseAttack, direction);
+            this.nextKnifeSwingDirection = result.nextSwingDirection ?? this.nextKnifeSwingDirection;
         }
 
-        if (weapon.family === 'charged_throw') {
-            const chargeMs = Math.max(weapon.castTimeMs, options.chargeMs || weapon.castTimeMs);
-            const chargeRatio = getChargeRatio(chargeMs, weapon);
-
-            return {
-                ...baseAttack,
-                chargeMs,
-                chargeRatio,
-                damage: Math.round(lerp(weapon.minDamage, weapon.maxDamage, chargeRatio)),
-                impactForce: Math.round(lerp(weapon.minImpactForce, weapon.maxImpactForce, chargeRatio)),
-                reach: Math.round(lerp(weapon.minRange, weapon.maxRange, chargeRatio)),
-                aoeRadius: Math.round(lerp(weapon.minAoeRadius, weapon.maxAoeRadius, chargeRatio))
-            };
-        }
-
-        return baseAttack;
-    }
-
-    applySweepAngles(attackProfile, direction) {
-        if (attackProfile.attackShape !== 'melee_sweep') {
-            return attackProfile;
-        }
-
-        const halfAngle = ((attackProfile.sweepAngle || 90) * Math.PI) / 360;
-        const sweepDirection = direction >= 0 ? 1 : -1;
-        const startAngle = sweepDirection > 0 ? this.angle - halfAngle : this.angle + halfAngle;
-        const endAngle = sweepDirection > 0 ? this.angle + halfAngle : this.angle - halfAngle;
-
-        return {
-            ...attackProfile,
-            sweepDirection,
-            startAngle,
-            endAngle
-        };
+        return result.attackProfile;
     }
 
     isStunned() {

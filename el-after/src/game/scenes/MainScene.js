@@ -14,6 +14,13 @@ const ENEMY_STYLE = {
     bouncer: { key: 'enemy_bouncer', color: 0xff9f1c, size: 32 }
 };
 
+const WEAPON_ACCENT_COLORS = {
+    fists: 0xf8f8f8,
+    knife: 0xfff08a,
+    gun: 0x74d3ff,
+    bottle: 0xff8cc8
+};
+
 const DEFAULT_THROW_SPEED = 0.78;
 const DEFAULT_BULLET_SPEED = 5.4;
 
@@ -114,6 +121,8 @@ export default class MainScene extends Phaser.Scene {
             const enemyType = msg.object1?.type || 'fodder';
             const enemyStyle = ENEMY_STYLE[enemyType] || ENEMY_STYLE.fodder;
             const sprite = this.add.sprite(0, 0, enemyStyle.key);
+            const weaponId = msg.object1?.weaponId || msg.object1?.equippedWeapon?.id || 'fists';
+            const weaponColor = msg.object1?.equippedWeapon?.badgeColor || WEAPON_ACCENT_COLORS[weaponId] || 0xffffff;
 
             const hpBg = this.add.graphics();
             hpBg.fillStyle(0x000000, 1);
@@ -123,12 +132,16 @@ export default class MainScene extends Phaser.Scene {
             hpFill.fillStyle(0x00ff00, 1);
             hpFill.fillRect(-15, -20, 30, 4);
 
-            const container = this.add.container(msg.float1, msg.float2, [sprite, hpBg, hpFill]);
+            const weaponBadge = this.add.circle(14, -12, 5, weaponColor, 1);
+            weaponBadge.setStrokeStyle(2, 0x111111, 0.7);
+
+            const container = this.add.container(msg.float1, msg.float2, [sprite, hpBg, hpFill, weaponBadge]);
 
             this.uiSprites[msg.senderId] = {
                 container,
                 sprite,
                 hpFill,
+                weaponBadge,
                 type: 'Enemy',
                 enemyType,
                 maxHp: msg.object1?.stats?.maxHp || 100
@@ -200,22 +213,23 @@ export default class MainScene extends Phaser.Scene {
         const isPlayer = msg.senderId.startsWith('player_');
         const color = isPlayer ? 0xffaa00 : 0xff0000;
 
+        if (attack.weaponId === 'fists') {
+            this.playFistComboAnimation(originX, originY, angle, attack, color);
+            return;
+        }
+
         if (attackShape === 'melee_circular') {
-            const graphics = this.add.graphics();
-            graphics.fillStyle(color, 0.35);
-            graphics.fillCircle(originX, originY, attack.reach);
-            this.tweens.add({
-                targets: graphics,
-                alpha: 0,
-                scale: 1.2,
-                duration: 180,
-                onComplete: () => graphics.destroy()
-            });
+            this.playImpactPulse(originX, originY, angle, attack, color);
             return;
         }
 
         if (attackShape === 'melee_frontal' || attackShape === 'melee_sweep') {
-            this.drawAttackArc(originX, originY, angle, attack, color);
+            this.playMeleeSweepAnimation(originX, originY, angle, attack, color, {
+                duration: attack.weaponId === 'knife' ? 150 : 110,
+                thickness: attack.weaponId === 'knife' ? 18 : 14,
+                tipRadius: attack.weaponId === 'knife' ? 7 : 5,
+                trailWindow: attack.weaponId === 'knife' ? 0.28 : 0.22
+            });
             return;
         }
 
@@ -224,24 +238,121 @@ export default class MainScene extends Phaser.Scene {
         }
     }
 
-    drawAttackArc(originX, originY, facingAngle, attack, color) {
+    playFistComboAnimation(originX, originY, facingAngle, attack, color) {
+        if (attack.comboIndex === 3 || attack.comboLabel === 'push' || attack.attackShape === 'melee_circular') {
+            this.playImpactPulse(originX, originY, facingAngle, attack, color, true);
+            return;
+        }
+
+        this.playMeleeSweepAnimation(originX, originY, facingAngle, attack, color, {
+            duration: 90,
+            thickness: 15,
+            tipRadius: 6,
+            trailWindow: 0.24,
+            innerTrail: false
+        });
+    }
+
+    playMeleeSweepAnimation(originX, originY, facingAngle, attack, color, options = {}) {
         const graphics = this.add.graphics();
+        const tip = this.add.circle(originX, originY, options.tipRadius || 6, color, 0.9);
         const defaultHalfAngle = ((attack.sweepAngle || 60) * Math.PI) / 360;
         const startAngle = attack.startAngle ?? (facingAngle - defaultHalfAngle);
         const endAngle = attack.endAngle ?? (facingAngle + defaultHalfAngle);
-
-        graphics.fillStyle(color, attack.attackShape === 'melee_sweep' ? 0.42 : 0.3);
-        graphics.beginPath();
-        graphics.moveTo(originX, originY);
-        graphics.arc(originX, originY, attack.reach, startAngle, endAngle, startAngle > endAngle);
-        graphics.closePath();
-        graphics.fillPath();
+        const angleDelta = this.normalizeAngle(endAngle - startAngle);
+        const anticlockwise = angleDelta < 0;
+        const duration = options.duration || 120;
+        const thickness = options.thickness || 16;
+        const trailWindow = options.trailWindow || 0.25;
+        const state = { progress: 0 };
 
         this.tweens.add({
-            targets: graphics,
+            targets: state,
+            progress: 1,
+            duration,
+            ease: 'Cubic.Out',
+            onUpdate: () => {
+                const headAngle = startAngle + (angleDelta * state.progress);
+                const tailProgress = Math.max(0, state.progress - trailWindow);
+                const tailAngle = startAngle + (angleDelta * tailProgress);
+                const tipX = originX + (Math.cos(headAngle) * attack.reach);
+                const tipY = originY + (Math.sin(headAngle) * attack.reach);
+
+                graphics.clear();
+                graphics.lineStyle(thickness + 8, color, 0.12);
+                graphics.beginPath();
+                graphics.arc(originX, originY, attack.reach, tailAngle, headAngle, anticlockwise);
+                graphics.strokePath();
+
+                graphics.lineStyle(thickness, color, 0.85);
+                graphics.beginPath();
+                graphics.arc(originX, originY, attack.reach, tailAngle, headAngle, anticlockwise);
+                graphics.strokePath();
+
+                if (options.innerTrail !== false) {
+                    graphics.lineStyle(Math.max(4, thickness * 0.4), 0xffffff, 0.18);
+                    graphics.beginPath();
+                    graphics.arc(originX, originY, attack.reach * 0.78, tailAngle, headAngle, anticlockwise);
+                    graphics.strokePath();
+                }
+
+                tip.setPosition(tipX, tipY);
+                tip.setScale(0.7 + (state.progress * 0.5));
+                tip.setAlpha(1 - (state.progress * 0.25));
+            },
+            onComplete: () => {
+                graphics.destroy();
+                tip.destroy();
+            }
+        });
+    }
+
+    playImpactPulse(originX, originY, facingAngle, attack, color, isFinisher = false) {
+        const radius = isFinisher ? Math.max(14, attack.reach * 0.35) : Math.max(12, attack.reach * 0.25);
+        const wave = this.add.circle(originX, originY, radius, color, isFinisher ? 0.12 : 0.08);
+        wave.setStrokeStyle(isFinisher ? 4 : 3, color, 0.95);
+
+        const burstLength = isFinisher ? attack.reach * 0.95 : attack.reach * 0.7;
+        const burst = this.add.rectangle(
+            originX + (Math.cos(facingAngle) * burstLength * 0.45),
+            originY + (Math.sin(facingAngle) * burstLength * 0.45),
+            burstLength,
+            isFinisher ? 22 : 14,
+            color,
+            isFinisher ? 0.18 : 0.12
+        );
+        burst.rotation = facingAngle;
+
+        const tip = this.add.circle(
+            originX + (Math.cos(facingAngle) * burstLength),
+            originY + (Math.sin(facingAngle) * burstLength),
+            isFinisher ? 9 : 6,
+            color,
+            0.9
+        );
+
+        this.tweens.add({
+            targets: wave,
+            scale: isFinisher ? 1.9 : 1.5,
             alpha: 0,
-            duration: attack.attackShape === 'melee_sweep' ? 120 : 150,
-            onComplete: () => graphics.destroy()
+            duration: isFinisher ? 170 : 140,
+            onComplete: () => wave.destroy()
+        });
+
+        this.tweens.add({
+            targets: burst,
+            scaleX: isFinisher ? 1.25 : 1.1,
+            alpha: 0,
+            duration: isFinisher ? 130 : 100,
+            onComplete: () => burst.destroy()
+        });
+
+        this.tweens.add({
+            targets: tip,
+            scale: isFinisher ? 1.7 : 1.35,
+            alpha: 0,
+            duration: isFinisher ? 120 : 90,
+            onComplete: () => tip.destroy()
         });
     }
 
@@ -342,6 +453,13 @@ export default class MainScene extends Phaser.Scene {
 
     buildProjectileKey(senderId) {
         return senderId;
+    }
+
+    normalizeAngle(angle) {
+        let normalized = angle;
+        while (normalized > Math.PI) normalized -= Math.PI * 2;
+        while (normalized < -Math.PI) normalized += Math.PI * 2;
+        return normalized;
     }
 
     _updateGroupCamera() {

@@ -1,5 +1,6 @@
 import EnemyEntity from '../entities/Enemy';
 import EventBus, { EVENTS, MessagePriority } from '../events/EventBus';
+import { pickEnemyWeaponIdForWave } from '../data/enemyWeapons';
 
 export default class EnemySpawnerSystem {
     constructor(simulation) {
@@ -78,8 +79,9 @@ export default class EnemySpawnerSystem {
         const id = `enemy_${this.enemyIdCounter++}`;
         const spawn = this._findSpawnPoint(playerCoords);
         const enemyType = this._pickEnemyType();
+        const weaponId = this._pickEnemyWeapon();
 
-        const enemy = new EnemyEntity(id, spawn.x, spawn.y, enemyType);
+        const enemy = new EnemyEntity(id, spawn.x, spawn.y, enemyType, weaponId);
         
         // 1. We must add the enemy directly to the simulation immediately
         // so it participates in physics/AI right away.
@@ -100,6 +102,10 @@ export default class EnemySpawnerSystem {
             return 'bouncer';
         }
         return 'fodder';
+    }
+
+    _pickEnemyWeapon() {
+        return pickEnemyWeaponIdForWave(this.currentWave || 1);
     }
 
     _countAliveEnemies() {

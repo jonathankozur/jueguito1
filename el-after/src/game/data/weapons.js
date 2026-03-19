@@ -175,6 +175,10 @@ export function getWeaponBySlot(slot) {
     return PLAYER_WEAPON_LOADOUT.find((weapon) => weapon.slot === slot) || null;
 }
 
+export function getWeaponById(id) {
+    return PLAYER_WEAPON_LOADOUT.find((weapon) => weapon.id === id) || null;
+}
+
 export function getSelectableWeaponSlots(loadout = PLAYER_WEAPON_LOADOUT) {
     return loadout.filter((weapon) => weapon.selectable).map((weapon) => weapon.slot);
 }

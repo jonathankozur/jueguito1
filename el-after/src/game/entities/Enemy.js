@@ -1,9 +1,10 @@
 import EventBus, { EVENTS, MessagePriority } from '../events/EventBus';
 import StatsComponent from '../components/StatsComponent';
+import { buildAttackProfile } from '../data/attackProfiles';
+import { createEnemyWeaponProfile } from '../data/enemyWeapons';
 
 const ENEMY_TYPES = {
     fodder: {
-        attackRange: 34,
         radius: 16,
         stats: {
             maxHp: 50,
@@ -15,7 +16,6 @@ const ENEMY_TYPES = {
         }
     },
     bouncer: {
-        attackRange: 42,
         radius: 20,
         stats: {
             maxHp: 120,
@@ -29,7 +29,7 @@ const ENEMY_TYPES = {
 };
 
 export default class EnemyEntity {
-    constructor(id, x, y, type = 'fodder') {
+    constructor(id, x, y, type = 'fodder', weaponId = 'fists') {
         const config = ENEMY_TYPES[type] || ENEMY_TYPES.fodder;
 
         this.id = id;
@@ -39,11 +39,19 @@ export default class EnemyEntity {
         this.velY = 0;
         this.angle = 0;
         this.type = config === ENEMY_TYPES.fodder ? 'fodder' : type;
-        this.attackRange = config.attackRange;
-        this.timeSinceLastAttack = Math.random() * 500;
+        this.equippedWeapon = createEnemyWeaponProfile(weaponId) || createEnemyWeaponProfile('fists');
+        this.weaponId = this.equippedWeapon.id;
+        this.attackRange = this.equippedWeapon.preferredRange;
+        this.retreatRange = this.equippedWeapon.retreatRange || 0;
+        this.timeSinceLastAttack = Math.random() * this.equippedWeapon.cooldownMs;
 
         this.stats = new StatsComponent(config.stats);
         this.radius = config.radius;
+
+        this.comboIndex = 0;
+        this.comboTimerMs = Number.POSITIVE_INFINITY;
+        this.nextKnifeSwingDirection = -1;
+
         this.knockbackVelX = 0;
         this.knockbackVelY = 0;
         this.knockbackRemainingMs = 0;
@@ -70,41 +78,25 @@ export default class EnemyEntity {
                 this.angle = Math.atan2(dy, dx);
             }
 
-            if (distance > this.attackRange) {
-                const speed = this.stats.getSpeed();
-                this.velX = (dx / distance) * speed;
-                this.velY = (dy / distance) * speed;
-                this.x += this.velX * (deltaMs / 1000);
-                this.y += this.velY * (deltaMs / 1000);
+            this.comboTimerMs += deltaMs;
+
+            const desiredRange = this.equippedWeapon.preferredRange;
+            const retreatRange = this.retreatRange;
+
+            if (distance > desiredRange) {
+                this.moveTowards(dx, dy, distance, deltaMs);
+                this.timeSinceLastAttack = 0;
+            } else if (retreatRange > 0 && distance < retreatRange) {
+                this.moveAway(dx, dy, distance, deltaMs);
                 this.timeSinceLastAttack = 0;
             } else {
                 this.velX = 0;
                 this.velY = 0;
                 this.timeSinceLastAttack += deltaMs;
 
-                if (this.timeSinceLastAttack >= this.stats.attackRate) {
+                if (this.timeSinceLastAttack >= this.equippedWeapon.cooldownMs) {
                     this.timeSinceLastAttack = 0;
-                    EventBus.enqueueCommand(EVENTS.ATTACK_PERFORMED, MessagePriority.HIGH, {
-                        senderId: this.id,
-                        float1: this.x,
-                        float2: this.y,
-                        float3: this.angle,
-                        float4: this.stats.damage,
-                        float5: this.stats.strength * 2,
-                        int1: this.attackRange,
-                        string1: 'melee_frontal',
-                        object1: {
-                            weaponId: `${this.type}_melee`,
-                            weaponName: `${this.type}_melee`,
-                            family: 'enemy_melee',
-                            attackShape: 'melee_frontal',
-                            damage: this.stats.damage,
-                            impactForce: this.stats.strength * 2,
-                            reach: this.attackRange,
-                            hitstunMs: 110,
-                            sweepAngle: 60
-                        }
-                    });
+                    this.performAttack();
                 }
             }
         } else {
@@ -128,6 +120,69 @@ export default class EnemyEntity {
             });
             this._dirty = false;
         }
+    }
+
+    moveTowards(dx, dy, distance, deltaMs) {
+        if (distance <= 0) {
+            this.velX = 0;
+            this.velY = 0;
+            return;
+        }
+
+        const speed = this.stats.getSpeed();
+        this.velX = (dx / distance) * speed;
+        this.velY = (dy / distance) * speed;
+        this.x += this.velX * (deltaMs / 1000);
+        this.y += this.velY * (deltaMs / 1000);
+    }
+
+    moveAway(dx, dy, distance, deltaMs) {
+        if (distance <= 0) {
+            this.velX = 0;
+            this.velY = 0;
+            return;
+        }
+
+        const speed = this.stats.getSpeed() * 0.8;
+        this.velX = (-dx / distance) * speed;
+        this.velY = (-dy / distance) * speed;
+        this.x += this.velX * (deltaMs / 1000);
+        this.y += this.velY * (deltaMs / 1000);
+    }
+
+    performAttack() {
+        if (this.equippedWeapon.family === 'combo_melee' && this.comboTimerMs > this.equippedWeapon.comboWindowMs) {
+            this.comboIndex = 0;
+        }
+
+        const result = buildAttackProfile(this.equippedWeapon, this.angle, {
+            comboIndex: this.comboIndex,
+            swingDirection: this.nextKnifeSwingDirection,
+            chargeMs: this.equippedWeapon.chargeMs
+        });
+
+        if (this.equippedWeapon.family === 'combo_melee') {
+            this.comboIndex = result.nextComboIndex ?? this.comboIndex;
+            this.comboTimerMs = 0;
+        }
+
+        if (this.equippedWeapon.family === 'melee_sweep') {
+            this.nextKnifeSwingDirection = result.nextSwingDirection ?? this.nextKnifeSwingDirection;
+        }
+
+        const attackProfile = result.attackProfile;
+
+        EventBus.enqueueCommand(EVENTS.ATTACK_PERFORMED, MessagePriority.HIGH, {
+            senderId: this.id,
+            float1: this.x,
+            float2: this.y,
+            float3: this.angle,
+            float4: attackProfile.damage,
+            float5: attackProfile.impactForce,
+            int1: attackProfile.reach,
+            string1: attackProfile.attackShape,
+            object1: attackProfile
+        });
     }
 
     isControlled() {

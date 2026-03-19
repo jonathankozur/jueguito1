@@ -7,9 +7,9 @@ describe('Enemy Entity', () => {
         EventBus.resetAll();
     });
 
-    it('emite un ataque frontal con el mismo rango que usa para contacto', () => {
-        const enemy = new EnemyEntity('enemy_1', 0, 0);
-        enemy.timeSinceLastAttack = enemy.stats.attackRate;
+    it('usa el arma equipada al atacar', () => {
+        const enemy = new EnemyEntity('enemy_1', 0, 0, 'fodder', 'knife');
+        enemy.timeSinceLastAttack = enemy.equippedWeapon.cooldownMs;
 
         let attackMsg = null;
         const attackSpy = vi.fn((msg) => {
@@ -21,21 +21,17 @@ describe('Enemy Entity', () => {
         EventBus.dispatchCommands();
 
         expect(attackSpy).toHaveBeenCalledTimes(1);
-        expect(attackMsg).toMatchObject({
-            senderId: 'enemy_1',
-            int1: enemy.attackRange,
-            string1: 'melee_frontal'
-        });
-        expect(attackMsg.object1.reach).toBe(enemy.attackRange);
+        expect(attackMsg.string1).toBe('melee_sweep');
+        expect(attackMsg.object1.weaponId).toBe('knife');
+        expect(attackMsg.object1.reach).toBe(enemy.equippedWeapon.reach);
     });
 
     it('bouncer tiene stats y tamano superiores al fodder', () => {
-        const fodder = new EnemyEntity('enemy_f', 0, 0, 'fodder');
-        const bouncer = new EnemyEntity('enemy_b', 0, 0, 'bouncer');
+        const fodder = new EnemyEntity('enemy_f', 0, 0, 'fodder', 'fists');
+        const bouncer = new EnemyEntity('enemy_b', 0, 0, 'bouncer', 'fists');
 
         expect(bouncer.stats.maxHp).toBeGreaterThan(fodder.stats.maxHp);
         expect(bouncer.radius).toBeGreaterThan(fodder.radius);
-        expect(bouncer.attackRange).toBeGreaterThan(fodder.attackRange);
     });
 
     it('no persigue mientras esta en knockback y retoma al terminar', () => {

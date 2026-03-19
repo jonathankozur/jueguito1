@@ -29,4 +29,25 @@ describe('EnemySpawnerSystem', () => {
         expect(spawner.currentWave).toBe(2);
         expect(spawner.currentSpawnDelay).toBeLessThan(spawner.baseSpawnDelay);
     });
+
+    it('spawnea enemigos con un arma equipada', () => {
+        const simulation = {
+            entities: new Map(),
+            isCircleBlocked: () => false
+        };
+        const spawner = new EnemySpawnerSystem(simulation);
+        let createdEnemy = null;
+
+        EventBus.subscribe(EVENTS.ENTITY_CREATED, (msg) => {
+            createdEnemy = msg.object1;
+        });
+
+        spawner.currentWave = 4;
+        spawner.spawnEnemy({ x: 800, y: 800 });
+        EventBus.dispatchEvents();
+
+        expect(createdEnemy).toBeTruthy();
+        expect(['fists', 'knife', 'gun', 'bottle']).toContain(createdEnemy.weaponId);
+        expect(createdEnemy.equippedWeapon).toBeTruthy();
+    });
 });
