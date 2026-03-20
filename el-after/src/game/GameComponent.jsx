@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Phaser from 'phaser';
 import MainScene from './scenes/MainScene';
 import GameEngine from './core/GameEngine';
-import EventBus, { EVENTS } from './events/EventBus';
+import EventBus, { EVENTS, MessagePriority } from './events/EventBus';
 import EventDebugger from './debug/EventDebugger';
 import WEAPON_LOADOUT from './data/weapons';
 
@@ -210,6 +210,28 @@ const initialChargeState = {
     slot: 0
 };
 
+const initialRunStats = {
+    runTimeSeconds: 0,
+    score: 0,
+    kills: 0,
+    killsByType: {},
+    level: 1,
+    xp: 0,
+    nextLevelXp: 80,
+    activeBuffs: [],
+    dashState: {
+        ready: true,
+        cooldownMs: 0,
+        activeMs: 0
+    }
+};
+
+const initialLevelUpState = {
+    active: false,
+    level: 1,
+    choices: []
+};
+
 const GameComponent = ({ onExit }) => {
     const gameRef = useRef(null);
     const engineRef = useRef(null);
@@ -225,6 +247,8 @@ const GameComponent = ({ onExit }) => {
     const [currentWeapon, setCurrentWeapon] = useState(initialWeaponState);
     const [attackCharge, setAttackCharge] = useState(initialChargeState);
     const [isPaused, setIsPaused] = useState(false);
+    const [runStats, setRunStats] = useState(initialRunStats);
+    const [levelUpState, setLevelUpState] = useState(initialLevelUpState);
 
     const startPhaserGame = useCallback((engine, myPlayerId) => {
         if (gameRef.current) return;
@@ -261,6 +285,7 @@ const GameComponent = ({ onExit }) => {
             if (msg.senderId === myPlayerId) {
                 if (gameRef.current) gameRef.current.registry.set('isPaused', false);
                 setIsPaused(false);
+                setLevelUpState(initialLevelUpState);
                 setEndResult('died');
             }
         };
@@ -269,6 +294,7 @@ const GameComponent = ({ onExit }) => {
             if (msg.senderId === myPlayerId) {
                 if (gameRef.current) gameRef.current.registry.set('isPaused', false);
                 setIsPaused(false);
+                setLevelUpState(initialLevelUpState);
                 setEndResult('won');
             }
         };
@@ -276,6 +302,7 @@ const GameComponent = ({ onExit }) => {
         const onGameOver = () => {
             if (gameRef.current) gameRef.current.registry.set('isPaused', false);
             setIsPaused(false);
+            setLevelUpState(initialLevelUpState);
             setEndResult((previous) => previous || 'gameover');
         };
 
@@ -303,6 +330,38 @@ const GameComponent = ({ onExit }) => {
             setCurrentWave(msg.int1);
         };
 
+        const onRunStatsUpdated = (msg) => {
+            if (msg.senderId === myPlayerId) {
+                setRunStats({
+                    ...initialRunStats,
+                    ...msg.object1
+                });
+            }
+        };
+
+        const onLevelUpReady = (msg) => {
+            if (msg.senderId !== myPlayerId) return;
+
+            setLevelUpState({
+                active: true,
+                level: msg.int1 || msg.object1?.level || 1,
+                choices: msg.object1?.choices || []
+            });
+
+            if (engineRef.current?.mode === 'solo') {
+                engineRef.current.pause();
+                if (gameRef.current) {
+                    gameRef.current.registry.set('isPaused', true);
+                }
+            }
+        };
+
+        const onLevelUpResolved = (msg) => {
+            if (msg.senderId === myPlayerId) {
+                setLevelUpState(initialLevelUpState);
+            }
+        };
+
         EventBus.subscribe(EVENTS.PLAYER_HP_CHANGED, onPlayerHpChanged);
         EventBus.subscribe(EVENTS.PLAYER_DIED, onPlayerDied);
         EventBus.subscribe(EVENTS.PLAYER_WON, onPlayerWon);
@@ -310,11 +369,14 @@ const GameComponent = ({ onExit }) => {
         EventBus.subscribe(EVENTS.PLAYER_WEAPON_CHANGED, onWeaponChanged);
         EventBus.subscribe(EVENTS.ATTACK_CHARGE_UPDATED, onChargeUpdated);
         EventBus.subscribe(EVENTS.WAVE_CHANGED, onWaveChanged);
+        EventBus.subscribe(EVENTS.RUN_STATS_UPDATED, onRunStatsUpdated);
+        EventBus.subscribe(EVENTS.LEVEL_UP_READY, onLevelUpReady);
+        EventBus.subscribe(EVENTS.LEVEL_UP_RESOLVED, onLevelUpResolved);
     }, []);
 
     const togglePause = useCallback(() => {
         const engine = engineRef.current;
-        if (!engine || engine.mode !== 'solo' || screen !== 'playing' || endResult) return;
+        if (!engine || engine.mode !== 'solo' || screen !== 'playing' || endResult || levelUpState.active) return;
 
         const nextPaused = !isPaused;
         if (nextPaused) {
@@ -328,7 +390,29 @@ const GameComponent = ({ onExit }) => {
         }
 
         setIsPaused(nextPaused);
-    }, [endResult, isPaused, screen]);
+    }, [endResult, isPaused, levelUpState.active, screen]);
+
+    const handleLevelChoice = useCallback((choiceId) => {
+        if (!choiceId || !levelUpState.active) return;
+
+        const engine = engineRef.current;
+
+        EventBus.enqueueCommand(EVENTS.LEVEL_UP_CHOICE_REQUEST, MessagePriority.CRITICAL, {
+            senderId: localPlayerId,
+            string1: choiceId
+        });
+
+        if (engine?.mode === 'solo') {
+            engine.step();
+
+            if (!isPaused && !endResult) {
+                engine.resume();
+                if (gameRef.current) {
+                    gameRef.current.registry.set('isPaused', false);
+                }
+            }
+        }
+    }, [endResult, isPaused, levelUpState.active, localPlayerId]);
 
     const handleHost = useCallback(async () => {
         setLobbyError(null);
@@ -373,7 +457,11 @@ const GameComponent = ({ onExit }) => {
             setCurrentWave(0);
             setCurrentWeapon(initialWeaponState);
             setAttackCharge(initialChargeState);
+            setRunStats(initialRunStats);
+            setLevelUpState(initialLevelUpState);
+            setPlayerHp({ current: 100, max: 100 });
             setIsPaused(false);
+            setEndResult(null);
             setLocalPlayerId(myId || 'client');
             setRoomId(inputRoomId);
             setScreen('playing');
@@ -393,7 +481,11 @@ const GameComponent = ({ onExit }) => {
             setCurrentWave(0);
             setCurrentWeapon(initialWeaponState);
             setAttackCharge(initialChargeState);
+            setRunStats(initialRunStats);
+            setLevelUpState(initialLevelUpState);
+            setPlayerHp({ current: 100, max: 100 });
             setIsPaused(false);
+            setEndResult(null);
             setLocalPlayerId('player_1');
             setScreen('playing');
             startPhaserGame(engine, 'player_1');
@@ -401,6 +493,14 @@ const GameComponent = ({ onExit }) => {
     }, [startPhaserGame]);
 
     const handleStart = useCallback(() => {
+        setCurrentWave(0);
+        setCurrentWeapon(initialWeaponState);
+        setAttackCharge(initialChargeState);
+        setRunStats(initialRunStats);
+        setLevelUpState(initialLevelUpState);
+        setPlayerHp({ current: 100, max: 100 });
+        setIsPaused(false);
+        setEndResult(null);
         setScreen('playing');
         startPhaserGame(engineRef.current, localPlayerId);
     }, [localPlayerId, startPhaserGame]);
@@ -430,6 +530,32 @@ const GameComponent = ({ onExit }) => {
         window.addEventListener('keydown', onKeyDown);
         return () => window.removeEventListener('keydown', onKeyDown);
     }, [togglePause]);
+
+    useEffect(() => {
+        if (!levelUpState.active) return undefined;
+
+        const onChoiceHotkey = (event) => {
+            const keyNumber = Number.parseInt(event.key, 10);
+            if (!Number.isInteger(keyNumber) || keyNumber < 1 || keyNumber > levelUpState.choices.length) {
+                return;
+            }
+
+            event.preventDefault();
+            handleLevelChoice(levelUpState.choices[keyNumber - 1]?.id);
+        };
+
+        window.addEventListener('keydown', onChoiceHotkey);
+        return () => window.removeEventListener('keydown', onChoiceHotkey);
+    }, [handleLevelChoice, levelUpState]);
+
+    const formatHpValue = (value) => Math.max(0, Math.round(value || 0));
+    const currentHpDisplay = formatHpValue(playerHp.current);
+    const maxHpDisplay = formatHpValue(playerHp.max);
+    const formattedRunTime = `${String(Math.floor(runStats.runTimeSeconds / 60)).padStart(2, '0')}:${String(runStats.runTimeSeconds % 60).padStart(2, '0')}`;
+    const dashLabel = runStats.dashState.activeMs > 0
+        ? 'esquivando'
+        : (runStats.dashState.ready ? 'listo' : `${(runStats.dashState.cooldownMs / 1000).toFixed(1)} s`);
+    const killEntries = Object.entries(runStats.killsByType || {});
 
     return (
         <div style={{ position: 'relative', width: '100%', height: '100%' }}>
@@ -473,10 +599,13 @@ const GameComponent = ({ onExit }) => {
                                 }} />
                             </div>
                             <div style={{ textAlign: 'right', fontSize: '12px', marginTop: '2px' }}>
-                                {playerHp.current} / {playerHp.max} HP
+                                {currentHpDisplay} / {maxHpDisplay} HP
                             </div>
                             <div style={{ marginTop: '8px', fontSize: '12px', color: '#ffae00' }}>
                                 Arma [{currentWeapon.slot}]: {currentWeapon.name}
+                            </div>
+                            <div style={{ marginTop: '6px', fontSize: '12px', color: '#74d3ff' }}>
+                                Dash [ESPACIO]: {dashLabel}
                             </div>
                             <div style={{ marginTop: '10px', display: 'grid', gap: '4px', fontSize: '11px' }}>
                                 {WEAPON_LOADOUT.map((weapon) => (
@@ -538,11 +667,92 @@ const GameComponent = ({ onExit }) => {
                         </div>
                     )}
 
+                    {!endResult && (
+                        <div style={{
+                            position: 'absolute',
+                            top: 20,
+                            right: 20,
+                            zIndex: 10,
+                            width: '280px',
+                            background: 'rgba(0,0,0,0.82)',
+                            padding: '12px 16px',
+                            border: '2px solid #39ff14',
+                            borderRadius: '10px',
+                            color: '#fff',
+                            fontFamily: 'monospace',
+                            boxShadow: '0 0 18px rgba(57, 255, 20, 0.12)'
+                        }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', color: '#39ff14', fontSize: '12px' }}>
+                                <span>RUN EN CURSO</span>
+                                <span>{formattedRunTime}</span>
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', fontSize: '12px' }}>
+                                <div>Puntos</div>
+                                <div style={{ textAlign: 'right', color: '#ffae00' }}>{runStats.score}</div>
+                                <div>Bajas</div>
+                                <div style={{ textAlign: 'right', color: '#ff6ec7' }}>{runStats.kills}</div>
+                                <div>Nivel</div>
+                                <div style={{ textAlign: 'right', color: '#74d3ff' }}>{runStats.level}</div>
+                            </div>
+
+                            <div style={{ marginTop: '10px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#9bdcff', marginBottom: '4px' }}>
+                                    <span>Experiencia</span>
+                                    <span>{runStats.xp} / {runStats.nextLevelXp}</span>
+                                </div>
+                                <div style={{ width: '100%', height: '10px', background: '#15202d', border: '1px solid #2f4c66' }}>
+                                    <div style={{
+                                        width: `${Math.max(0, Math.min(100, (runStats.xp / Math.max(1, runStats.nextLevelXp)) * 100))}%`,
+                                        height: '100%',
+                                        background: 'linear-gradient(90deg, #74d3ff 0%, #39ff14 100%)',
+                                        transition: 'width 0.15s ease-out'
+                                    }} />
+                                </div>
+                            </div>
+
+                            <div style={{ marginTop: '10px', fontSize: '11px', color: '#bfbfbf' }}>
+                                Dash: <span style={{ color: runStats.dashState.ready ? '#39ff14' : (runStats.dashState.activeMs > 0 ? '#74d3ff' : '#ffae00') }}>{dashLabel}</span>
+                            </div>
+
+                            {killEntries.length > 0 && (
+                                <div style={{ marginTop: '10px', display: 'grid', gap: '4px', fontSize: '11px' }}>
+                                    {killEntries.map(([enemyType, amount]) => (
+                                        <div key={enemyType} style={{ display: 'flex', justifyContent: 'space-between', color: '#d7d7d7' }}>
+                                            <span>{enemyType === 'bouncer' ? 'Patovas' : 'Fisuras'}</span>
+                                            <span>{amount}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+
+                            <div style={{ marginTop: '10px', display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                                {runStats.activeBuffs.length === 0 && (
+                                    <div style={{ fontSize: '10px', color: '#666' }}>Sin bebidas activas</div>
+                                )}
+                                {runStats.activeBuffs.map((buff) => (
+                                    <div
+                                        key={buff.id}
+                                        style={{
+                                            border: `1px solid #${buff.color.toString(16).padStart(6, '0')}`,
+                                            color: '#fff',
+                                            background: 'rgba(255,255,255,0.04)',
+                                            borderRadius: '999px',
+                                            padding: '4px 8px',
+                                            fontSize: '10px'
+                                        }}
+                                    >
+                                        {buff.name} {(buff.remainingMs / 1000).toFixed(1)}s
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
                     {roomId && (
                         <div style={{
                             position: 'absolute',
-                            top: 10,
-                            right: 50,
+                            top: 318,
+                            right: 20,
                             zIndex: 10,
                             background: 'rgba(0,0,0,0.7)',
                             padding: '4px 12px',
@@ -553,6 +763,76 @@ const GameComponent = ({ onExit }) => {
                             fontSize: '12px'
                         }}>
                             SALA: {roomId}
+                        </div>
+                    )}
+
+                    {levelUpState.active && !endResult && (
+                        <div style={{
+                            position: 'fixed',
+                            top: 0,
+                            left: 0,
+                            width: '100vw',
+                            height: '100vh',
+                            background: 'rgba(5, 7, 18, 0.84)',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            zIndex: 47,
+                            backdropFilter: 'blur(10px)'
+                        }}>
+                            <div style={{
+                                width: 'min(960px, calc(100vw - 48px))',
+                                border: '2px solid #39ff14',
+                                background: 'rgba(10, 14, 26, 0.94)',
+                                borderRadius: '18px',
+                                padding: '26px',
+                                boxShadow: '0 0 28px rgba(57, 255, 20, 0.12)'
+                            }}>
+                                <div style={{ color: '#39ff14', fontSize: '13px', letterSpacing: '4px', fontFamily: 'monospace', marginBottom: '8px' }}>
+                                    SUBIDA DE NIVEL
+                                </div>
+                                <div style={{ color: '#fff', fontSize: '30px', fontFamily: 'monospace', marginBottom: '8px' }}>
+                                    Nivel {levelUpState.level}
+                                </div>
+                                <div style={{ color: '#8f97ac', fontSize: '13px', fontFamily: 'monospace', marginBottom: '20px' }}>
+                                    Elegi una mejora para seguir sobreviviendo. Tambien podes usar 1, 2 o 3.
+                                </div>
+
+                                <div style={{
+                                    display: 'grid',
+                                    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                                    gap: '14px'
+                                }}>
+                                    {levelUpState.choices.map((choice, index) => (
+                                        <button
+                                            key={choice.id}
+                                            onClick={() => handleLevelChoice(choice.id)}
+                                            style={{
+                                                textAlign: 'left',
+                                                border: '1px solid rgba(116, 211, 255, 0.4)',
+                                                background: 'linear-gradient(180deg, rgba(18, 26, 42, 0.95) 0%, rgba(10, 13, 24, 0.98) 100%)',
+                                                borderRadius: '14px',
+                                                padding: '16px',
+                                                color: '#fff',
+                                                cursor: 'pointer',
+                                                fontFamily: 'monospace',
+                                                boxShadow: '0 0 18px rgba(116, 211, 255, 0.08)'
+                                            }}
+                                        >
+                                            <div style={{ color: '#74d3ff', fontSize: '11px', marginBottom: '8px' }}>
+                                                OPCION {index + 1}
+                                            </div>
+                                            <div style={{ fontSize: '18px', marginBottom: '8px' }}>
+                                                {choice.title}
+                                            </div>
+                                            <div style={{ fontSize: '12px', color: '#aeb7c9', lineHeight: 1.45 }}>
+                                                {choice.description}
+                                            </div>
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
                         </div>
                     )}
 

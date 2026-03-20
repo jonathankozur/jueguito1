@@ -13,6 +13,7 @@ export default class EnemySpawnerSystem {
         this.currentWave = 0;
         this.waveDurationMs = 30000;
         this.waveElapsedMs = 0;
+        this.totalElapsedMs = 0;
         this.currentSpawnDelay = this.baseSpawnDelay;
         
         // Spawn radius from the player
@@ -27,6 +28,7 @@ export default class EnemySpawnerSystem {
         this.enabled = true;
         this.currentWave = 1;
         this.waveElapsedMs = 0;
+        this.totalElapsedMs = 0;
         this.timeSinceLastSpawn = this.baseSpawnDelay;
         this.currentSpawnDelay = this.baseSpawnDelay;
         this.maxAliveEnemies = 6;
@@ -40,6 +42,7 @@ export default class EnemySpawnerSystem {
         this.enabled = false;
         this.currentWave = 0;
         this.waveElapsedMs = 0;
+        this.totalElapsedMs = 0;
         this.timeSinceLastSpawn = 0;
         this.currentSpawnDelay = this.baseSpawnDelay;
         this.maxAliveEnemies = 6;
@@ -53,6 +56,7 @@ export default class EnemySpawnerSystem {
         if (!playerCoords) return;
 
         this.waveElapsedMs += deltaMs;
+        this.totalElapsedMs += deltaMs;
         if (this.waveElapsedMs >= this.waveDurationMs) {
             this.waveElapsedMs -= this.waveDurationMs;
             this.currentWave += 1;
@@ -80,8 +84,12 @@ export default class EnemySpawnerSystem {
         const spawn = this._findSpawnPoint(playerCoords);
         const enemyType = this._pickEnemyType();
         const weaponId = this._pickEnemyWeapon();
+        const scale = this._getEnemyScale();
 
-        const enemy = new EnemyEntity(id, spawn.x, spawn.y, enemyType, weaponId);
+        const enemy = new EnemyEntity(id, spawn.x, spawn.y, enemyType, weaponId, {
+            statScale: scale,
+            scoreScale: scale
+        });
         
         // 1. We must add the enemy directly to the simulation immediately
         // so it participates in physics/AI right away.
@@ -106,6 +114,12 @@ export default class EnemySpawnerSystem {
 
     _pickEnemyWeapon() {
         return pickEnemyWeaponIdForWave(this.currentWave || 1);
+    }
+
+    _getEnemyScale() {
+        const timeScale = (this.totalElapsedMs / 60000) * 0.12;
+        const waveScale = Math.max(0, this.currentWave - 1) * 0.08;
+        return 1 + timeScale + waveScale;
     }
 
     _countAliveEnemies() {

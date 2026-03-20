@@ -1,17 +1,16 @@
 import EventBus, { EVENTS, MessagePriority } from '../events/EventBus';
 import EnemySpawnerSystem from '../systems/EnemySpawnerSystem';
 import CombatSystem from '../systems/CombatSystem';
+import RunDirectorSystem from '../systems/RunDirectorSystem';
 
 const WORLD_SIZE = 1600;
 
 export default class GameSimulation {
     constructor() {
-        // Registro universal de todas las entidades en la simulación
         this.entities = new Map();
-        
-        // Sistemas de simulación
         this.enemySpawner = new EnemySpawnerSystem(this);
         this.combatSystem = new CombatSystem(this);
+        this.runDirector = new RunDirectorSystem(this);
 
         EventBus.subscribe(EVENTS.ENTITY_CREATED, this.onEntityCreated, this);
     }
@@ -20,58 +19,70 @@ export default class GameSimulation {
         this.entities.set(msg.senderId, msg.object1);
     }
 
-    // Motor central de avance en el tiempo (Tick)
     update(delta) {
-        // [MULTIPLAYER] Find ALL player positions (not just 'player1')
-        const playerPositions = [];
+        const players = [];
         for (const [id, entity] of this.entities.entries()) {
             if (id.startsWith('player_')) {
-                playerPositions.push({ x: entity.x, y: entity.y });
+                players.push(entity);
             }
         }
 
-        // For enemy AI: target the nearest player
-        // (With enemies disabled this is moot, but future-proofed)
-        const primaryPlayer = playerPositions[0] ?? null;
+        const primaryPlayer = players[0] ?? null;
 
-        // Run spawner (disabled in multiplayer branch)
-        this.enemySpawner.update(delta, primaryPlayer);
+        this.enemySpawner.update(delta, primaryPlayer ? { x: primaryPlayer.x, y: primaryPlayer.y } : null);
+        this.runDirector.update(delta, primaryPlayer);
 
-        // Actualizar lógicas de todas las entidades
-        this.entities.forEach(entity => {
+        this.entities.forEach((entity) => {
             if (typeof entity.update === 'function') {
                 entity.update(delta, primaryPlayer);
             }
         });
 
-        this.checkCollisions();
+        this.checkCollisions(players);
     }
 
-    checkCollisions() {
+    checkCollisions(players = null) {
         const obstacles = [];
-        const movers = [];
+        const actors = [];
+        const pickups = [];
+        const playerActors = players || [];
+        const correctedEntities = new Set();
 
-        this.entities.forEach(entity => {
+        this.entities.forEach((entity) => {
             if (entity.width && entity.height && entity.material) {
                 obstacles.push(entity);
-            }
-            if (entity.radius && entity.x !== undefined && entity.y !== undefined) {
-                movers.push(entity);
+            } else if (entity.pickupType) {
+                pickups.push(entity);
+            } else if (entity.radius && entity.x !== undefined && entity.y !== undefined) {
+                actors.push(entity);
             }
         });
 
-        movers.forEach(entity => {
+        actors.forEach((entity) => {
             const worldCorrected = this._clampToWorld(entity);
             const obstacleCorrected = this._resolveObstacles(entity, obstacles);
             if (worldCorrected || obstacleCorrected) {
-                this._emitCorrection(entity);
+                correctedEntities.add(entity);
             }
+        });
+
+        this._resolveActorPairs(actors, correctedEntities);
+
+        correctedEntities.forEach((entity) => {
+            const worldCorrected = this._clampToWorld(entity);
+            const obstacleCorrected = this._resolveObstacles(entity, obstacles);
+            if (worldCorrected || obstacleCorrected) {
+                entity._dirty = true;
+            }
+        });
+
+        this._collectPickups(playerActors.length > 0 ? playerActors : actors.filter((entity) => entity.id?.startsWith('player_')), pickups);
+
+        correctedEntities.forEach((entity) => {
+            this._emitCorrection(entity);
         });
     }
 
-    /**
-     * [MULTIPLAYER] Removes a player entity when they disconnect.
-     */
     removePlayer(playerId) {
         const entity = this.entities.get(playerId);
         if (entity) {
@@ -91,8 +102,12 @@ export default class GameSimulation {
             this.combatSystem.destroy();
             this.combatSystem = null;
         }
-        // Destroy all entities
-        this.entities.forEach(entity => {
+        if (this.runDirector) {
+            this.runDirector.destroy();
+            this.runDirector = null;
+        }
+
+        this.entities.forEach((entity) => {
             if (typeof entity.destroy === 'function') entity.destroy();
         });
         this.entities.clear();
@@ -128,11 +143,84 @@ export default class GameSimulation {
     _resolveObstacles(entity, obstacles) {
         let corrected = false;
         for (const obstacle of obstacles) {
+            if (this._shouldBypassObstacle(entity, obstacle)) {
+                continue;
+            }
             if (this._resolveCircleVsRect(entity, obstacle)) {
                 corrected = true;
             }
         }
         return corrected;
+    }
+
+    _shouldBypassObstacle(entity, obstacle) {
+        if (!obstacle.penetrableDuringDash) {
+            return false;
+        }
+
+        if (typeof entity.isInvulnerable === 'function' && entity.isInvulnerable()) {
+            return true;
+        }
+
+        return false;
+    }
+
+    _resolveActorPairs(actors, correctedEntities) {
+        for (let i = 0; i < actors.length; i += 1) {
+            for (let j = i + 1; j < actors.length; j += 1) {
+                const entityA = actors[i];
+                const entityB = actors[j];
+                const dx = entityB.x - entityA.x;
+                const dy = entityB.y - entityA.y;
+                const distance = Math.sqrt((dx * dx) + (dy * dy)) || 0.0001;
+                const minDistance = (entityA.radius || 0) + (entityB.radius || 0);
+
+                if (distance >= minDistance || minDistance <= 0) continue;
+
+                const overlap = minDistance - distance;
+                const nx = dx / distance;
+                const ny = dy / distance;
+                const massA = typeof entityA.getCollisionMass === 'function' ? entityA.getCollisionMass() : (entityA.collisionMass || 1);
+                const massB = typeof entityB.getCollisionMass === 'function' ? entityB.getCollisionMass() : (entityB.collisionMass || 1);
+                const totalMass = massA + massB;
+                const moveA = overlap * (massB / totalMass);
+                const moveB = overlap * (massA / totalMass);
+
+                entityA.x -= nx * moveA;
+                entityA.y -= ny * moveA;
+                entityB.x += nx * moveB;
+                entityB.y += ny * moveB;
+                entityA._dirty = true;
+                entityB._dirty = true;
+                correctedEntities.add(entityA);
+                correctedEntities.add(entityB);
+            }
+        }
+    }
+
+    _collectPickups(players, pickups) {
+        for (const player of players) {
+            for (const pickup of pickups) {
+                if (!this.entities.has(pickup.id)) continue;
+
+                const dx = pickup.x - player.x;
+                const dy = pickup.y - player.y;
+                const distanceSq = (dx * dx) + (dy * dy);
+                const radius = (pickup.radius || 12) + (player.radius || 16);
+
+                if (distanceSq > radius * radius) continue;
+
+                this.entities.delete(pickup.id);
+                EventBus.enqueueEvent(EVENTS.PICKUP_COLLECTED, MessagePriority.HIGH, {
+                    senderId: player.id,
+                    targetId: pickup.id,
+                    object1: pickup
+                });
+                EventBus.enqueueEvent(EVENTS.ENTITY_DESTROYED, MessagePriority.CRITICAL, {
+                    senderId: pickup.id
+                });
+            }
+        }
     }
 
     _resolveCircleVsRect(entity, obstacle) {

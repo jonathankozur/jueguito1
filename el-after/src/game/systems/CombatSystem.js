@@ -183,6 +183,10 @@ export default class CombatSystem {
     }
 
     applyImpact(target, damage, attack, attackerStrength, angle) {
+        if (typeof target.isInvulnerable === 'function' && target.isInvulnerable()) {
+            return;
+        }
+
         const isDead = target.receiveDamage(damage);
 
         if (isDead) {
@@ -357,10 +361,37 @@ export default class CombatSystem {
     }
 
     killEntity(entityId) {
+        const entity = this.simulation.entities.get(entityId);
+        if (entity?.type) {
+            EventBus.enqueueEvent(EVENTS.ENTITY_KILLED, MessagePriority.HIGH, {
+                senderId: entityId,
+                object1: this.buildKillPayload(entity)
+            });
+        }
+
         this.simulation.entities.delete(entityId);
         EventBus.enqueueEvent(EVENTS.ENTITY_DESTROYED, MessagePriority.CRITICAL, {
             senderId: entityId
         });
+    }
+
+    buildKillPayload(entity) {
+        const baseScore = entity.type === 'bouncer' ? 240 : 100;
+        const weaponMultiplier = {
+            fists: 1,
+            knife: 1.1,
+            gun: 1.25,
+            bottle: 1.3
+        }[entity.weaponId] || 1;
+        const scoreScale = entity.scoreScale || 1;
+
+        return {
+            kind: 'enemy',
+            enemyType: entity.type,
+            weaponId: entity.weaponId,
+            scoreValue: Math.round(baseScore * weaponMultiplier * scoreScale),
+            xpValue: Math.max(6, Math.round((baseScore / 18) * scoreScale))
+        };
     }
 
     destroy() {

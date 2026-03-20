@@ -167,6 +167,7 @@ export default class NetworkHost {
             case 'INPUT_ATTACK':
             case 'INPUT_ATTACK_START':
             case 'INPUT_ATTACK_RELEASE':
+            case 'INPUT_DASH':
             case 'INPUT_INVENTORY_CHANGE':
                 this._processClientInput(msg);
                 break;
@@ -206,6 +207,10 @@ export default class NetworkHost {
             });
         } else if (msg.type === 'INPUT_ATTACK_RELEASE') {
             EventBus.enqueueCommand(EVENTS.INPUT_ATTACK_RELEASE, MessagePriority.HIGH, {
+                targetId: fromPlayerId
+            });
+        } else if (msg.type === 'INPUT_DASH') {
+            EventBus.enqueueCommand(EVENTS.INPUT_DASH, MessagePriority.HIGH, {
                 targetId: fromPlayerId
             });
         } else if (msg.type === 'INPUT_ATTACK') {

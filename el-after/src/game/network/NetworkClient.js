@@ -259,6 +259,12 @@ export default class NetworkClient {
         this.sendAttackReleaseInput();
     }
 
+    sendDashInput() {
+        this._sendToHost({
+            type: 'INPUT_DASH'
+        });
+    }
+
     sendInventoryChange(value, mode) {
         this._sendToHost({
             type: 'INPUT_INVENTORY_CHANGE',

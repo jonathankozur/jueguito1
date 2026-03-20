@@ -60,6 +60,7 @@ export default class MainScene extends Phaser.Scene {
         EventBus.subscribe(EVENTS.ENTITY_HP_CHANGED, this.onEntityHpChanged, this);
         EventBus.subscribe(EVENTS.ATTACK_PERFORMED, this.onAttackPerformed, this);
         EventBus.subscribe(EVENTS.PROJECTILE_IMPACT, this.onProjectileImpact, this);
+        EventBus.subscribe(EVENTS.PLAYER_DASH_STATE_CHANGED, this.onDashStateChanged, this);
 
         this.projectileTweens = new Map();
 
@@ -166,12 +167,61 @@ export default class MainScene extends Phaser.Scene {
                 container,
                 type: 'Obstacle'
             };
+        } else if (msg.string1 === 'Pickup') {
+            const pickup = msg.object1;
+            const glow = this.add.circle(0, 0, 18, pickup.color || 0xffffff, 0.16);
+            glow.setStrokeStyle(2, pickup.color || 0xffffff, 0.45);
+
+            const bottleBody = this.add.rectangle(0, 4, 14, 18, 0xf7f2d0, 0.9);
+            bottleBody.setStrokeStyle(2, 0x1a1a1a, 0.9);
+
+            const bottleLiquid = this.add.rectangle(0, 7, 10, 10, pickup.color || 0xffffff, 0.88);
+            const bottleNeck = this.add.rectangle(0, -7, 6, 6, 0xf7f2d0, 0.95);
+            bottleNeck.setStrokeStyle(2, 0x1a1a1a, 0.85);
+
+            const label = this.add.rectangle(0, 2, 8, 4, 0xffffff, 0.85);
+            const shine = this.add.circle(-3, 2, 2, 0xffffff, 0.55);
+            const nameTag = this.add.text(0, -22, pickup.name || 'TRAGO', {
+                fontSize: '9px',
+                color: '#f5f5f5',
+                fontFamily: 'monospace',
+                stroke: '#000000',
+                strokeThickness: 2
+            }).setOrigin(0.5);
+
+            const container = this.add.container(msg.float1, msg.float2, [
+                glow,
+                bottleBody,
+                bottleLiquid,
+                bottleNeck,
+                label,
+                shine,
+                nameTag
+            ]);
+
+            const bobTween = this.tweens.add({
+                targets: container,
+                y: msg.float2 - 6,
+                duration: 700,
+                yoyo: true,
+                repeat: -1,
+                ease: 'Sine.InOut'
+            });
+
+            this.uiSprites[msg.senderId] = {
+                container,
+                bobTween,
+                type: 'Pickup'
+            };
         }
     }
 
     onEntityDestroyed(msg) {
         const entityData = this.uiSprites[msg.senderId];
         if (entityData) {
+            if (entityData.bobTween) {
+                entityData.bobTween.stop();
+            }
             entityData.container.destroy();
             delete this.uiSprites[msg.senderId];
         }
@@ -429,6 +479,31 @@ export default class MainScene extends Phaser.Scene {
         });
     }
 
+    onDashStateChanged(msg) {
+        const entityData = this.uiSprites[msg.senderId];
+        if (!entityData || entityData.type !== 'Player') return;
+
+        if (msg.string1 === 'dashing') {
+            entityData.container.setScale(1.1);
+            entityData.sprite.setAlpha(0.6);
+
+            const ring = this.add.circle(entityData.container.x, entityData.container.y, 14, 0x74d3ff, 0.15);
+            ring.setStrokeStyle(3, 0x74d3ff, 0.9);
+
+            this.tweens.add({
+                targets: ring,
+                scale: 1.9,
+                alpha: 0,
+                duration: 140,
+                onComplete: () => ring.destroy()
+            });
+            return;
+        }
+
+        entityData.container.setScale(1);
+        entityData.sprite.setAlpha(1);
+    }
+
     createExplosion(x, y, radius, color) {
         const explosion = this.add.circle(x, y, radius, color, 0.5);
         this.tweens.add({
@@ -501,6 +576,7 @@ export default class MainScene extends Phaser.Scene {
         EventBus.unsubscribe(EVENTS.ENTITY_HP_CHANGED, this.onEntityHpChanged, this);
         EventBus.unsubscribe(EVENTS.ATTACK_PERFORMED, this.onAttackPerformed, this);
         EventBus.unsubscribe(EVENTS.PROJECTILE_IMPACT, this.onProjectileImpact, this);
+        EventBus.unsubscribe(EVENTS.PLAYER_DASH_STATE_CHANGED, this.onDashStateChanged, this);
 
         if (this.inputController) {
             this.inputController.destroy();

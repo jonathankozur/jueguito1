@@ -29,6 +29,7 @@ export default class InputController {
             down: Phaser.Input.Keyboard.KeyCodes.S,
             left: Phaser.Input.Keyboard.KeyCodes.A,
             right: Phaser.Input.Keyboard.KeyCodes.D,
+            dash: Phaser.Input.Keyboard.KeyCodes.SPACE,
             slot1: Phaser.Input.Keyboard.KeyCodes.ONE,
             slot2: Phaser.Input.Keyboard.KeyCodes.TWO,
             slot3: Phaser.Input.Keyboard.KeyCodes.THREE,
@@ -84,6 +85,10 @@ export default class InputController {
                 this._sendInventoryChange(i, 'key');
             }
         }
+
+        if (Phaser.Input.Keyboard.JustDown(this.cursors.dash)) {
+            this._sendDashInput();
+        }
     }
 
     _sendAttackStartInput() {
@@ -101,6 +106,16 @@ export default class InputController {
             this.networkClient.sendAttackReleaseInput();
         } else {
             EventBus.enqueueCommand(EVENTS.INPUT_ATTACK_RELEASE, MessagePriority.HIGH, {
+                targetId: this.playerId
+            });
+        }
+    }
+
+    _sendDashInput() {
+        if (this.inputMode === 'remote' && this.networkClient) {
+            this.networkClient.sendDashInput();
+        } else {
+            EventBus.enqueueCommand(EVENTS.INPUT_DASH, MessagePriority.HIGH, {
                 targetId: this.playerId
             });
         }

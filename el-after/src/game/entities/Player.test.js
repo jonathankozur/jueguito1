@@ -211,4 +211,34 @@ describe('Player Entity', () => {
         expect(attackMsg.object1.reach).toBeGreaterThan(180);
         expect(chargeEvents.at(-1).string1).toBe('idle');
     });
+
+    it('el dash vuelve invulnerable al jugador por una ventana corta', () => {
+        const player = new PlayerEntity('p1', 0, 0);
+        const initialHp = player.stats.currentHp;
+
+        EventBus.enqueueCommand(EVENTS.INPUT_MOVE, MessagePriority.NORMAL, {
+            targetId: 'p1',
+            float1: 1,
+            float2: 0
+        });
+        EventBus.dispatchCommands();
+
+        EventBus.enqueueCommand(EVENTS.INPUT_DASH, MessagePriority.HIGH, {
+            targetId: 'p1'
+        });
+        EventBus.dispatchCommands();
+
+        player.update(60);
+
+        expect(player.isInvulnerable()).toBe(true);
+        expect(player.x).toBeGreaterThan(30);
+        expect(player.receiveDamage(10)).toBe(false);
+        expect(player.stats.currentHp).toBe(initialHp);
+
+        player.update(250);
+
+        expect(player.isInvulnerable()).toBe(false);
+        player.receiveDamage(10);
+        expect(player.stats.currentHp).toBeLessThan(initialHp);
+    });
 });

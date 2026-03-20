@@ -16,6 +16,12 @@ export default class StatsComponent {
         this.strength = config.strength || 10; // Fuerza del atacante
         this.endurance = config.endurance || 10; // Aguante del defensor (resistencia al empuje)
 
+        this.speedMultiplier = config.speedMultiplier || 1;
+        this.attackSpeedMultiplier = config.attackSpeedMultiplier || 1;
+        this.damageMultiplier = config.damageMultiplier || 1;
+        this.armor = config.armor || 0;
+        this.regenPerSecond = config.regenPerSecond || 0;
+
         // Internal state
         this.isDead = this.currentHp <= 0;
     }
@@ -23,7 +29,8 @@ export default class StatsComponent {
     takeDamage(amount) {
         if (this.isDead) return 0; // Already pure logic
 
-        const actualDamage = Math.min(this.currentHp, amount);
+        const mitigatedAmount = Math.max(0, amount * (1 - Math.min(0.75, this.armor)));
+        const actualDamage = Math.min(this.currentHp, mitigatedAmount);
         this.currentHp -= actualDamage;
 
         if (this.currentHp <= 0) {
@@ -49,6 +56,14 @@ export default class StatsComponent {
 
     getSpeed() {
         // Here we could implement buffs/debuffs multipliers in the future
-        return this.baseSpeed;
+        return this.baseSpeed * this.speedMultiplier;
+    }
+
+    getAttackCooldown(baseCooldownMs = this.attackRate) {
+        return Math.max(60, Math.round(baseCooldownMs / this.attackSpeedMultiplier));
+    }
+
+    getScaledDamage(baseDamage = this.damage) {
+        return Math.max(1, Math.round(baseDamage * this.damageMultiplier));
     }
 }

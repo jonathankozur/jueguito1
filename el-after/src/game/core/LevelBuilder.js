@@ -25,7 +25,7 @@ export default class LevelBuilder {
 
     _spawnObstacles() {
         const obstacles = [
-            { id: 'bar_norte', x: 800, y: 230, w: 680, h: 60, mat: 'hard', hLevel: 'high' },
+            { id: 'bar_norte', x: 800, y: 230, w: 680, h: 60, mat: 'hard', hLevel: 'high', penetrableDuringDash: true },
             { id: 'escenario_sur', x: 800, y: 1370, w: 680, h: 60, mat: 'hard', hLevel: 'high' },
             { id: 'cabina_oeste', x: 240, y: 800, w: 60, h: 480, mat: 'hard', hLevel: 'high' },
             { id: 'patio_este', x: 1360, y: 800, w: 60, h: 480, mat: 'hard', hLevel: 'high' },
@@ -40,7 +40,8 @@ export default class LevelBuilder {
         ];
 
         obstacles.forEach(ob => {
-            const entity = new StaticObstacleEntity(ob.id, ob.x, ob.y, ob.w, ob.h, ob.mat, ob.hLevel);
+            const options = ob.penetrableDuringDash ? { penetrableDuringDash: true } : {};
+            const entity = new StaticObstacleEntity(ob.id, ob.x, ob.y, ob.w, ob.h, ob.mat, ob.hLevel, options);
             EventBus.enqueueEvent(EVENTS.ENTITY_CREATED, MessagePriority.NORMAL, {
                 object1: entity,
                 string1: 'Obstacle',

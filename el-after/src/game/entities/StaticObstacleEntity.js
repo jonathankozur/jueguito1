@@ -1,12 +1,13 @@
 export default class StaticObstacleEntity {
-    constructor(id, x, y, width, height, material = 'hard', heightLevel = 'high') {
+    constructor(id, x, y, width, height, material = 'hard', heightLevel = 'high', options = {}) {
         this.id = id;
         this.x = x;
         this.y = y;
         this.width = width;
         this.height = height;
-        this.material = material; // 'soft', 'medium', 'hard'
-        this.heightLevel = heightLevel; // 'low' (sobrepasable), 'high' (bloquea arrojadizas)
+        this.material = material;
+        this.heightLevel = heightLevel;
+        this.penetrableDuringDash = !!options.penetrableDuringDash;
     }
 
     update() {

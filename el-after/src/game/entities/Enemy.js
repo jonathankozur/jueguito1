@@ -29,8 +29,17 @@ const ENEMY_TYPES = {
 };
 
 export default class EnemyEntity {
-    constructor(id, x, y, type = 'fodder', weaponId = 'fists') {
+    constructor(id, x, y, type = 'fodder', weaponId = 'fists', runtimeConfig = {}) {
         const config = ENEMY_TYPES[type] || ENEMY_TYPES.fodder;
+        const statScale = runtimeConfig.statScale || 1;
+        const scaledStats = {
+            ...config.stats,
+            maxHp: Math.max(1, Math.round(config.stats.maxHp * statScale)),
+            baseSpeed: Math.max(50, Math.round(config.stats.baseSpeed * (1 + ((statScale - 1) * 0.25)))),
+            damage: Math.max(1, Math.round(config.stats.damage * (1 + ((statScale - 1) * 0.55)))),
+            strength: Math.max(1, Math.round(config.stats.strength * (1 + ((statScale - 1) * 0.45)))),
+            endurance: Math.max(1, Math.round(config.stats.endurance * (1 + ((statScale - 1) * 0.4))))
+        };
 
         this.id = id;
         this.x = x;
@@ -40,12 +49,17 @@ export default class EnemyEntity {
         this.angle = 0;
         this.type = config === ENEMY_TYPES.fodder ? 'fodder' : type;
         this.equippedWeapon = createEnemyWeaponProfile(weaponId) || createEnemyWeaponProfile('fists');
+        this.equippedWeapon.damage = Math.max(1, Math.round(this.equippedWeapon.damage * (1 + ((statScale - 1) * 0.35))));
+        this.equippedWeapon.impactForce = Math.max(1, Math.round(this.equippedWeapon.impactForce * (1 + ((statScale - 1) * 0.3))));
+        this.equippedWeapon.cooldownMs = Math.max(180, Math.round(this.equippedWeapon.cooldownMs / (1 + ((statScale - 1) * 0.18))));
         this.weaponId = this.equippedWeapon.id;
         this.attackRange = this.equippedWeapon.preferredRange;
         this.retreatRange = this.equippedWeapon.retreatRange || 0;
         this.timeSinceLastAttack = Math.random() * this.equippedWeapon.cooldownMs;
+        this.scoreScale = runtimeConfig.scoreScale || statScale;
+        this.collisionMass = (runtimeConfig.collisionMass || (this.type === 'bouncer' ? 2.4 : 1.3)) * (1 + ((statScale - 1) * 0.4));
 
-        this.stats = new StatsComponent(config.stats);
+        this.stats = new StatsComponent(scaledStats);
         this.radius = config.radius;
 
         this.comboIndex = 0;
@@ -187,6 +201,10 @@ export default class EnemyEntity {
 
     isControlled() {
         return this.knockbackRemainingMs > 0 || this.hitstunRemainingMs > 0;
+    }
+
+    getCollisionMass() {
+        return this.collisionMass;
     }
 
     applyImpulse(payload) {
