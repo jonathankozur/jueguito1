@@ -221,6 +221,14 @@ export default class RunDirectorSystem {
                 remainingMs: quantizeMs(buff.remainingMs, 250),
                 color: buff.color
             })),
+            playerStats: {
+                maxHp: player.stats.maxHp,
+                speedMultiplier: player.stats.speedMultiplier,
+                attackSpeedMultiplier: player.stats.attackSpeedMultiplier,
+                damageMultiplier: player.stats.damageMultiplier,
+                armor: player.stats.armor,
+                regenPerSecond: player.stats.regenPerSecond
+            },
             dashState: {
                 ready: player.dashCooldownRemainingMs <= 0 && player.dashRemainingMs <= 0,
                 cooldownMs: quantizeMs(player.dashCooldownRemainingMs),

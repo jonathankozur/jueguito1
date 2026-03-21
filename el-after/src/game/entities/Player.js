@@ -218,6 +218,7 @@ export default class PlayerEntity {
                 slot: weapon.slot,
                 name: weapon.name,
                 family: weapon.family,
+                level: weapon.level || 1,
                 selectable: weapon.selectable
             }
         });

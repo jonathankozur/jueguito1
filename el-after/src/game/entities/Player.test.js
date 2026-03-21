@@ -112,6 +112,22 @@ describe('Player Entity', () => {
             int1: 2,
             string1: 'Cuchillo'
         });
+        expect(captured.at(-1).object1.level).toBe(1);
+    });
+
+    it('incluye el level actualizado cuando se sube el arma', () => {
+        const player = new PlayerEntity('p1', 0, 0);
+        const events = [];
+        EventBus.subscribe(EVENTS.PLAYER_WEAPON_CHANGED, (msg) => {
+            events.push({ ...msg, object1: { ...msg.object1 } });
+        });
+
+        player.upgradeWeapon('fists');
+        EventBus.dispatchEvents();
+
+        const latest = events.at(-1);
+        expect(latest).toBeTruthy();
+        expect(latest.object1.level).toBe(player.getActiveWeapon().level);
     });
 
     it('hace combo de punos en tres pasos', () => {

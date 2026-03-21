@@ -223,6 +223,14 @@ const initialRunStats = {
         ready: true,
         cooldownMs: 0,
         activeMs: 0
+    },
+    playerStats: {
+        maxHp: 100,
+        speedMultiplier: 1,
+        attackSpeedMultiplier: 1,
+        damageMultiplier: 1,
+        armor: 0,
+        regenPerSecond: 0
     }
 };
 
@@ -231,6 +239,10 @@ const initialLevelUpState = {
     level: 1,
     choices: []
 };
+
+const buildWeaponLevels = () => Object.fromEntries(
+    WEAPON_LOADOUT.map((weapon) => [weapon.id, weapon.level || 1])
+);
 
 const GameComponent = ({ onExit }) => {
     const gameRef = useRef(null);
@@ -249,6 +261,7 @@ const GameComponent = ({ onExit }) => {
     const [isPaused, setIsPaused] = useState(false);
     const [runStats, setRunStats] = useState(initialRunStats);
     const [levelUpState, setLevelUpState] = useState(initialLevelUpState);
+    const [weaponLevels, setWeaponLevels] = useState(buildWeaponLevels);
 
     const startPhaserGame = useCallback((engine, myPlayerId) => {
         if (gameRef.current) return;
@@ -313,6 +326,10 @@ const GameComponent = ({ onExit }) => {
                     name: msg.string1,
                     family: msg.object1?.family || 'unknown'
                 });
+                setWeaponLevels((previous) => ({
+                    ...previous,
+                    [msg.object1?.id]: msg.object1?.level || 1
+                }));
             }
         };
 
@@ -460,6 +477,7 @@ const GameComponent = ({ onExit }) => {
             setRunStats(initialRunStats);
             setLevelUpState(initialLevelUpState);
             setPlayerHp({ current: 100, max: 100 });
+            setWeaponLevels(buildWeaponLevels());
             setIsPaused(false);
             setEndResult(null);
             setLocalPlayerId(myId || 'client');
@@ -484,6 +502,7 @@ const GameComponent = ({ onExit }) => {
             setRunStats(initialRunStats);
             setLevelUpState(initialLevelUpState);
             setPlayerHp({ current: 100, max: 100 });
+            setWeaponLevels(buildWeaponLevels());
             setIsPaused(false);
             setEndResult(null);
             setLocalPlayerId('player_1');
@@ -499,6 +518,7 @@ const GameComponent = ({ onExit }) => {
         setRunStats(initialRunStats);
         setLevelUpState(initialLevelUpState);
         setPlayerHp({ current: 100, max: 100 });
+        setWeaponLevels(buildWeaponLevels());
         setIsPaused(false);
         setEndResult(null);
         setScreen('playing');
@@ -556,6 +576,35 @@ const GameComponent = ({ onExit }) => {
         ? 'esquivando'
         : (runStats.dashState.ready ? 'listo' : `${(runStats.dashState.cooldownMs / 1000).toFixed(1)} s`);
     const killEntries = Object.entries(runStats.killsByType || {});
+    const playerStatSnapshot = runStats.playerStats || initialRunStats.playerStats;
+    const formatNumber = (value, decimals = 0) => Number.isFinite(value) ? value.toFixed(decimals) : '0';
+    const formatPercentChange = (value) => `${value >= 0 ? '+' : ''}${value.toFixed(0)}%`;
+    const statsDisplay = [
+        {
+            label: 'Vel',
+            value: formatPercentChange((playerStatSnapshot.speedMultiplier - 1) * 100)
+        },
+        {
+            label: 'Cad',
+            value: formatPercentChange((playerStatSnapshot.attackSpeedMultiplier - 1) * 100)
+        },
+        {
+            label: 'Daño',
+            value: formatPercentChange((playerStatSnapshot.damageMultiplier - 1) * 100)
+        },
+        {
+            label: 'Armadura',
+            value: `${formatNumber(playerStatSnapshot.armor, 0)}`
+        },
+        {
+            label: 'Reg',
+            value: `${formatNumber(playerStatSnapshot.regenPerSecond, 1)}/s`
+        },
+        {
+            label: 'Vida máx',
+            value: `${Math.round(playerStatSnapshot.maxHp)} HP`
+        }
+    ];
 
     return (
         <div style={{ position: 'relative', width: '100%', height: '100%' }}>
@@ -617,7 +666,7 @@ const GameComponent = ({ onExit }) => {
                                             color: currentWeapon.slot === weapon.slot ? '#ffffff' : weapon.selectable ? '#888' : '#555'
                                         }}
                                     >
-                                        <span>[{weapon.slot}] {weapon.name}</span>
+                                        <span>[{weapon.slot}] {weapon.name} · Lv {weaponLevels[weapon.id] ?? 1}</span>
                                         <span>{weapon.selectable ? 'lista' : 'reservado'}</span>
                                     </div>
                                 ))}
@@ -744,6 +793,17 @@ const GameComponent = ({ onExit }) => {
                                         {buff.name} {(buff.remainingMs / 1000).toFixed(1)}s
                                     </div>
                                 ))}
+                            </div>
+                            <div style={{ marginTop: '12px', paddingTop: '10px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                                <div style={{ fontSize: '11px', color: '#9bdcff', marginBottom: '6px' }}>Stats actuales</div>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '6px', fontSize: '11px', color: '#d3d3d3' }}>
+                                    {statsDisplay.map((stat) => (
+                                        <div key={stat.label} style={{ padding: '6px', borderRadius: '8px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.04)' }}>
+                                            <div style={{ fontSize: '9px', color: '#8f97ac' }}>{stat.label}</div>
+                                            <div style={{ fontSize: '13px', color: '#fff' }}>{stat.value}</div>
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
                         </div>
                     )}
